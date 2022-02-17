@@ -4,7 +4,6 @@ https://www.waveshare.com/wiki/Pico-LCD-1.3
 
 """
 
-
 from machine import Pin,SPI,PWM
 from Pico_LCD1_3 import LCD_1inch3
 import framebuf

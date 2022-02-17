@@ -42,9 +42,10 @@ Optional:
 #####################################################
 import sys, os
 import time
+from LCD_7seg import SSEG
 
 EMBEDDED = False  # set True if running embedded (>enables io-port, RTC time setting, display out)
-if 'micropython' in sys.implementation:
+if 'micropython' in str(sys.implementation):
     EMBEDDED = True
 
 if EMBEDDED:
@@ -53,6 +54,7 @@ if EMBEDDED:
     import framebuf
     
     from LCD1_3_setup import *
+    ssDraw = framebuf.
     
     '''
     BL = 13
@@ -103,6 +105,8 @@ else:
     listener = pynput.mouse.Listener(
         on_scroll=on_scroll)
     listener.start()
+    
+    ssDraw = SSEG.debug_draw
         
 #    listener = pynput.keyboard.Listener(
 #        on_press=on_press(key),
@@ -120,7 +124,7 @@ TIME_H = 0.     # actual hour (decimal)
 TIME_WD = 0     # actual week day (0 = Monday)
 TOTAL_WT = 0.   # accumulated work time - planned worktime
 WORK_TIME_PLAN = 35.0 # work time per hour plan
-COLOR = LCD.green  # default when printing
+COLOR = LCD.green if EMBEDDED else 0  # default when printing
 
 #####################################################
 
@@ -209,8 +213,7 @@ class WT_Day():
         self.totalHours = self.stop - self.start
         self.totalBalance = self.totalWt - WT_Day.wtPlan
         return self.totalWt
-    
-    
+        
 
 #####################################################
 class WT_Week():
@@ -320,6 +323,15 @@ class UI():
             LCD.show()
         else:
             print(txt)
+            
+    def printNumber(cls, num_txt, y=10, x=8, digits=[]):   # digits is list of SSEG objects
+        for i,d in enumerate(num_txt):
+            ss = digits[i]
+            ss.set(d,pt=False)
+            
+            
+        
+            
 
 class UI_():
     @classmethod
@@ -454,7 +466,9 @@ def main():
     wt_day =       WT_Day(work_time_plan=WORK_TIME_PLAN)
     wt_last_day =  WT_Day(work_time_plan=WORK_TIME_PLAN)
     wt_week =      WT_Week(work_time_plan=WORK_TIME_PLAN)    
-    wt_last_week = WT_Week(work_time_plan=WORK_TIME_PLAN)    
+    wt_last_week = WT_Week(work_time_plan=WORK_TIME_PLAN)
+    
+    digits = [SSEG(0,100,COLOR,UI.printNumber), SSEG(16,100,COLOR,UI.printNumber) ]
 
 #%%    
     while True:
@@ -533,6 +547,8 @@ def main():
             UI.print("yest  Balance %.3f  Brakes %.3f  Hours %.4f"%(wt_last_day.totalBalance,wt_last_day.totalBreak, wt_last_day.totalHours),50)
             UI.print("Week  Balance %d"%0, 70)
             UI.print("Last Wk Balance%d "%0,90)
+            ss = ("%.4f"%TIME_H)[-2]
+            UI.printNumber(ss, y=100, x=0, digits=digits)
         else:
             _sec = time.mktime(tuple(MY_Time.localTimeTuple))
             _tt = time.localtime(_sec)                    
@@ -568,7 +584,8 @@ def main():
         if TIME_H < 0.1:
             dayEndProcessed = False
             
-        time.sleep_ms(200)
+        if EMBEDDED:
+            time.sleep_ms(200)
             
 #######################################################
 #%%
