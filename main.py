@@ -339,7 +339,7 @@ class UI():
 
     @classmethod    
     def drawLine(cls,p1, p2, color):
-        color=LCD.white
+        # color=LCD.white
         if EMBEDDED:
             # FrameBuffer.line(x1, y1, x2, y2, c)
             UI.FBUF.line(p1[0], p1[1], p2[0], p2[1], color)
@@ -488,13 +488,17 @@ def main():
     wt_last_week = WT_Week(work_time_plan=WORK_TIME_PLAN)
     
     UI.FBUF = LCD
-    digits = [SSEG(10,200,COLOR,UI.drawLine), SSEG(26,200,COLOR,UI.drawLine) ]
+    ssColor = LCD.white
+    digits = [SSEG(10,200,ssColor,UI.drawLine), SSEG(26,200,ssColor,UI.drawLine) ]
     
     #d = SSEG(50,180,LCD.white,UI.drawLine)
     #d.draw_segment('tr')
     #d.draw_segment('br')
+    #d.clear()
     #d.set(5)
-    
+    #d.clear()
+    #d.draw_segment('tr',True)
+
     #digits[0].set('1')
     #digits[1].set(0)
     
@@ -583,7 +587,7 @@ def main():
             UI.print("yest  Balance %.3f  Brakes %.3f  Hours %.4f"%(wt_last_day.totalBalance,wt_last_day.totalBreak, wt_last_day.totalHours),50)
             UI.print("Week  Balance %d"%0, 70)
             UI.print("Last Wk Balan %d "%0, 90)
-            ss = "%.4f"%TIME_H
+            ss = "%.3f"%TIME_H
             ss = ss[-2:]
             UI.print("xxxx %s"%ss,110)
             #ss = "34"
