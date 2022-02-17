@@ -529,7 +529,7 @@ def main():
                 time_h = 23.978
                 TIME_H, TIME_WD = MY_Time.changeTime(time_h)
 
-        
+         
         # endif ui_query
         
         wt_day.update(TIME_H)        
