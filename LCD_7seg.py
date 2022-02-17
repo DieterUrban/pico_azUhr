@@ -54,7 +54,7 @@ class SSEG():
         self.value = 'off'
         self.draw = draw_fct
         self.color = color
-        self.color_clear = 0
+        self.color_clear = 0x0000
         self.segments = []   # list of activated SEGMENT ojects
     
     # set segments according new value to show
@@ -72,8 +72,10 @@ class SSEG():
     def draw_segment(self, segment, clear=False):
         color = self.color_clear if clear else self.color
         s = SSEG.segments[segment]
-        p1 = [s[0][0]+self.pos_x, s[1][0],self.pos_y]
-        p2 = [s[0][1]+self.pos_x, s[1][1],self.pos_y]
+        s1 = s[0]
+        s2 = s[1]
+        p1 = [s1[0]+self.pos_x, s1[1]+self.pos_y]
+        p2 = [s2[0]+self.pos_x, s2[1]+self.pos_y]
         self.draw(p1, p2, color)
     
     # set all active segments off
@@ -99,8 +101,8 @@ if False:
         print(p1,p2)
         
     
-    digit1 = SSEG(0,16,color=1, draw_fct=printFct)
-    digit2 = SSEG(SSEG.SX,16,color=1, draw_fct=printFct)
+    digit1 = SSEG(0,100,color=1, draw_fct=printFct)
+    digit2 = SSEG(SSEG.SX,100,color=1, draw_fct=printFct)
     
     digit1.draw_segment('t')
     digit1.clear()

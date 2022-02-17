@@ -35,6 +35,9 @@ AZ-Model:
 
 Optional:
     Presence Sensor: Starte / Stoppe Arbeitszeit
+    
+Screen layout:
+     for LCD 1,3" color display, 240x240 pixel
 
 """
 
@@ -45,6 +48,7 @@ import time
 from LCD_7seg import SSEG
 
 EMBEDDED = False  # set True if running embedded (>enables io-port, RTC time setting, display out)
+EMBEDDED = True
 if 'micropython' in str(sys.implementation):
     EMBEDDED = True
 
@@ -54,8 +58,6 @@ if EMBEDDED:
     import framebuf
     
     from LCD1_3_setup import *
-    ssDraw = framebuf.
-    
     '''
     BL = 13
     DC = 8
@@ -106,7 +108,6 @@ else:
         on_scroll=on_scroll)
     listener.start()
     
-    ssDraw = SSEG.debug_draw
         
 #    listener = pynput.keyboard.Listener(
 #        on_press=on_press(key),
@@ -261,7 +262,9 @@ class UI():
          'setPlan':'p',
          'resetTotal':'r',
          'setEndDay':'e'
-         }    
+         }
+    
+    FBUF = None                       # set to lcd object (inherits framebuf.FrameBuffer)
     
     @classmethod
     def query(cls):
@@ -323,14 +326,26 @@ class UI():
             LCD.show()
         else:
             print(txt)
-            
-    def printNumber(cls, num_txt, y=10, x=8, digits=[]):   # digits is list of SSEG objects
-        for i,d in enumerate(num_txt):
-            ss = digits[i]
-            ss.set(d,pt=False)
-            
-            
-        
+
+    @classmethod            
+    def printNumber(cls, num_txt, digits=[]):   # digits is list of SSEG objects
+        for i,ss in enumerate(digits):
+            if i < len(num_txt):
+                d = num_txt[i]
+                #ss = digits[i]
+                ss.set(d,pt=False)
+            else:
+                ss.clear()
+
+    @classmethod    
+    def drawLine(cls,p1, p2, color):
+        color=LCD.white
+        if EMBEDDED:
+            # FrameBuffer.line(x1, y1, x2, y2, c)
+            UI.FBUF.line(p1[0], p1[1], p2[0], p2[1], color)
+        else:
+            SSEG.debug_draw(p1,p2,color)
+
             
 
 class UI_():
@@ -386,6 +401,7 @@ class MY_Time():
     TSEC_OFFSET = 0 # offset from time.time to real time-date (used in non embedded environment)
     localTimeTuple = list(time.localtime(time.time()))
     tsec = 0
+    RTC = None
 
     @classmethod
     def getLocaltime(cls):
@@ -437,7 +453,7 @@ class MY_Time():
     def setRTCtime(cls):
         # change rtc or adjust offset if no RTC (not embedded micropython)
         if EMBEDDED:
-            machine.RTC().datetime(tuple(MY_Time.localtimeTuple))
+            MY_Time.RTC.datetime(tuple(MY_Time.localTimeTuple))
         else:
             userAdjusted_tsec = time.mktime(tuple(MY_Time.localTimeTuple))
             tsec = time.time()
@@ -451,6 +467,9 @@ class MY_Time():
 def main():
     global TIME_H, TIME_WD, TOTAL_WT, WORK_TIME_PLAN, KEY_CHR, COLOR
     print("start main")
+    
+    MY_Time.RTC = machine.RTC()
+    
     config = Config()
 #%%
     Config.read()
@@ -468,7 +487,19 @@ def main():
     wt_week =      WT_Week(work_time_plan=WORK_TIME_PLAN)    
     wt_last_week = WT_Week(work_time_plan=WORK_TIME_PLAN)
     
-    digits = [SSEG(0,100,COLOR,UI.printNumber), SSEG(16,100,COLOR,UI.printNumber) ]
+    UI.FBUF = LCD
+    digits = [SSEG(10,200,COLOR,UI.drawLine), SSEG(26,200,COLOR,UI.drawLine) ]
+    
+    #d = SSEG(50,180,LCD.white,UI.drawLine)
+    #d.draw_segment('tr')
+    #d.draw_segment('br')
+    #d.set(5)
+    
+    #digits[0].set('1')
+    #digits[1].set(0)
+    
+    #LCD.line(10, 180, 30, 180, LCD.red)
+    #LCD.line(100, 180, 100, 220, LCD.blue)
 
 #%%    
     while True:
@@ -479,14 +510,17 @@ def main():
             key = UI.getKey()
 
             if   key == UI.key['start']:
+                # top key
                 wt_day.startWork(TIME_H)
                 COLOR = LCD.green
 
             elif key == UI.key['stop']:
+                # bottom key
                 wt_day.stopWork(TIME_H)
                 COLOR = LCD.red
 
             elif key == UI.key['resetTotal']:
+                # 2nd key from top
                 # reset accumulated total work time
                 TOTAL_WT = 0.
 
@@ -500,9 +534,10 @@ def main():
                 Config.write()
 
             elif key == UI.key['setH']:
-                # set hour from user input
+                # joystick press
+                # set hour from user input or simply to 12:00
                 if EMBEDDED:
-                    pass
+                    TIME_H = MY_Time.setH(int(12))
                 else:
                     new_hour = input("Hour 0...23: ")
                     TIME_H = MY_Time.setH(int(new_hour))
@@ -525,11 +560,12 @@ def main():
                 Config.write()
 
             elif key == UI.key['setEndDay']:
+                # 3rd from top
                 # set TIME_H = 23.90
                 time_h = 23.978
                 TIME_H, TIME_WD = MY_Time.changeTime(time_h)
 
-         
+        
         # endif ui_query
         
         wt_day.update(TIME_H)        
@@ -546,9 +582,12 @@ def main():
             UI.print("Today Balance %.3f  Brakes %.3f  Hours %.4f"%(wt_day.totalBalance,wt_day.totalBreak, wt_day.totalHours),30)
             UI.print("yest  Balance %.3f  Brakes %.3f  Hours %.4f"%(wt_last_day.totalBalance,wt_last_day.totalBreak, wt_last_day.totalHours),50)
             UI.print("Week  Balance %d"%0, 70)
-            UI.print("Last Wk Balance%d "%0,90)
-            ss = ("%.4f"%TIME_H)[-2]
-            UI.printNumber(ss, y=100, x=0, digits=digits)
+            UI.print("Last Wk Balan %d "%0, 90)
+            ss = "%.4f"%TIME_H
+            ss = ss[-2:]
+            UI.print("xxxx %s"%ss,110)
+            #ss = "34"
+            UI.printNumber(ss, digits=digits)
         else:
             _sec = time.mktime(tuple(MY_Time.localTimeTuple))
             _tt = time.localtime(_sec)                    
