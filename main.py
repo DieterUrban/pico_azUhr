@@ -215,6 +215,36 @@ class WT_Day():
         self.totalBalance = self.totalWt - WT_Day.wtPlan
         return self.totalWt
         
+#####################################################
+
+class Show_Days():
+    """
+    Provides:
+        Objekte und anzeige von 5 Zeilen AZ, +/- und Pause
+    """
+    header = ['AZ','+/-', 'Pause'] # header line content
+    days = ['Mo','Di','Mi','Do','Fr']
+    
+    def __init__():
+        self.hhmm = []  # will get 5 hh:mm display objects
+        self.actual = 0  # pointer to actual day in days
+        self.
+    
+    def show():
+        pass
+    
+    # update todays values
+    def update():
+        pass
+    
+    # roll over to next day  (and end actual day)
+    def next_day():
+        pass
+    
+    # roll over to monday, new week
+    def new_week():
+        pass
+
 
 #####################################################
 class WT_Week():
@@ -489,25 +519,80 @@ def main():
     
     UI.FBUF = LCD
     ssColor = LCD.white
-    dx=8
-    dy=16
-    y0 = 150
-    x0 = 30
     
-
     SSEG.setSize(x_digit_separation=4, x_digit_size=10, y_digit_separation=4, y_digit_size=14)
+    dx=10 + 14*4  # distance between hh:mm objects
+    dy=18  # Line spacing
 
-    digits = [SSEG(10,200,ssColor,UI.drawLine), SSEG(20,200,ssColor,UI.drawLine)]
-
-    hh = DIGITS(2, x0, y0, color=ssColor, draw_fct=UI.drawLine, right_separator=':')    
-    hh.set('59')
+    y0 = dy     # first line with digits
+    x0 = len('Tag WTag')*8+2*8    # x-pos first hh:mm  (AZ)
     
-    hm = HM(x0+50, y0, color=ssColor, draw_fct=UI.drawLine) 
-    hm.set('15:43')
+    # Output format is
+    '''
+    Tag WTag  AZ     Pause  +/-
+    0   Fr    00:00  00:00  00:00
+    -1  Do    
+    -2  Mi
+    -3  Di
+    -4  Mo
+    Woche     00:00  00:00  00:00
+    W-1       00:00  00:00  00:00
+    Sollzeit: 35h
 
-    hm2y = hm.y_next + SSEG.YSIZE
-    hm2 = HM(x0+50, hm2y, color=ssColor, draw_fct=UI.drawLine) 
-    hm2.set('04:11')
+    '''
+    
+    y = y0
+    x = x0
+    hhmm_days = []   # get list (5 rows) of list (3 colums) of HM objects
+    for d in range(5):
+        # one line per last 5 days
+        x = x0
+        day_hhmm=[]
+        for i in range(3):
+            # 3 hh:mm per line
+            hhmm = HM(x, y, color=ssColor, draw_fct=UI.drawLine)
+            day_hhmm += [hhmm]
+            x = hhmm.x_next + dx
+        y += dy
+
+    hhmm_days = []   # get list (5 rows) of list (3 colums) of HM objects
+    for d in range(5):
+        # one line per last 5 days
+        x = x0
+        day_hhmm=[]
+        for i in range(3):
+            # 3 hh:mm per line
+            hhmm = HM(x, y, color=ssColor, draw_fct=UI.drawLine)
+            day_hhmm += [hhmm]
+            x = hhmm.x_next + dx
+        hhmm_days += [day_hhmm]
+        y += dy
+
+    hhmm_weeks = []   # get list (2 rows) of list (3 colums) of HM objects
+    for d in range(2):
+        # one line for this and last week
+        x = x0
+        wk_hhmm=[]
+        for i in range(3):
+            # 3 hh:mm per line
+            hhmm = HM(x, y, color=ssColor, draw_fct=UI.drawLine)
+            wk_hhmm += [hhmm]
+            x = hhmm.x_next + dx
+        y += dy
+        hhmm_weeks +=[wk_hhmm]
+        
+        
+    #digits = [SSEG(10,200,ssColor,UI.drawLine), SSEG(20,200,ssColor,UI.drawLine)]
+
+    #hh = DIGITS(2, x0, y0, color=ssColor, draw_fct=UI.drawLine, right_separator=':')    
+    #hh.set('59')
+    
+    #hm = HM(x0+50, y0, color=ssColor, draw_fct=UI.drawLine) 
+    #hm.set('15:43')
+
+    #hm2y = hm.y_next + SSEG.YSIZE
+    #hm2 = HM(x0+50, hm2y, color=ssColor, draw_fct=UI.drawLine) 
+    #hm2.set('04:11')
 
 
     #d = SSEG(50,180,LCD.white,UI.drawLine)
