@@ -45,7 +45,7 @@ Screen layout:
 #####################################################
 import sys, os
 import time
-from LCD_7seg import SSEG
+from LCD_7seg import SSEG, DIGITS, HM
 
 EMBEDDED = False  # set True if running embedded (>enables io-port, RTC time setting, display out)
 EMBEDDED = True
@@ -489,8 +489,27 @@ def main():
     
     UI.FBUF = LCD
     ssColor = LCD.white
-    digits = [SSEG(10,200,ssColor,UI.drawLine), SSEG(26,200,ssColor,UI.drawLine) ]
+    dx=8
+    dy=16
+    y0 = 150
+    x0 = 30
     
+
+    SSEG.setSize(x_digit_separation=4, x_digit_size=10, y_digit_separation=4, y_digit_size=14)
+
+    digits = [SSEG(10,200,ssColor,UI.drawLine), SSEG(20,200,ssColor,UI.drawLine)]
+
+    hh = DIGITS(2, x0, y0, color=ssColor, draw_fct=UI.drawLine, right_separator=':')    
+    hh.set('59')
+    
+    hm = HM(x0+50, y0, color=ssColor, draw_fct=UI.drawLine) 
+    hm.set('15:43')
+
+    hm2y = hm.y_next + SSEG.YSIZE
+    hm2 = HM(x0+50, hm2y, color=ssColor, draw_fct=UI.drawLine) 
+    hm2.set('04:11')
+
+
     #d = SSEG(50,180,LCD.white,UI.drawLine)
     #d.draw_segment('tr')
     #d.draw_segment('br')
