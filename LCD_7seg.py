@@ -1,19 +1,26 @@
 """
-graphic impl. of 7-seg pattern
+impl. of 7-seg pattern for LCD display using external draw line function
+
+SSEG.draw_fct  must be set after importing library to draw to display, otherwise just debug print is used
+     draw_fct(p1_x, p1_y, p2_x, p2_y, color)
+SSEG.draw_fct = LCD.line
 
 """
 #%%
 
+def debug_draw_fct(x1,y1, x2,y2, color):
+    print((x1,y1),(x2,y2),color)
 
-# create 00:00 object for e.g. hour:min display
+
+# create 00:00 object for e.g. hour:min display, optional with leading sign
 class HM():
-    def __init__(self, pos_x, pos_y, color=0, draw_fct=None):
-        self.hh = DIGITS(2, pos_x, pos_y, color, draw_fct, right_separator=':')
+    def __init__(self, pos_x, pos_y, color=0, sign=True):
+        n = 3 if sign else 2
+        self.hh = DIGITS(n, pos_x, pos_y, color, fill_zeros=False, right_separator=':')
         pos_x2 = self.hh.x_next
-        self.mm = DIGITS(2, pos_x2, pos_y, color, draw_fct, right_separator='')
+        self.mm = DIGITS(2, pos_x2, pos_y, color, right_separator='')
         self.x_next = self.mm.x_next
         self.y_next = pos_y
-
 
     def set(self, value):    # value is already '01:22' type string
         hh,mm = str(value).split(':')
@@ -30,8 +37,7 @@ class DIGITS():
     def __init__(self, n_digits,       # number digits
                  pos_x, pos_y,         # bottom left x,y position as for text
                  color = 0x255,        # active color. assuming 0 (black) for clear
-                 draw_fct=None,        #  draw_fct(p1=(x,y), p2=(x,y), color):
-                 left_aligned=False,   # fill value characters starting from left digit
+                 left_aligned=False,   # fill value characters starting from left digit or last digit
                  fill_zeros=True,      # fill missing valule characters with 0 (otherwise black/off)
                  right_separator = '', # can be '.' or ':' as alternative
                  ):
@@ -45,7 +51,7 @@ class DIGITS():
         x=pos_x
         y=pos_y
         for d in range(n_digits):
-            digit = SSEG(x,y,color,draw_fct)
+            digit = SSEG(x,y,color)
             self.sseg += [digit]
             x = digit.x_next
             # y = digit.y_next same line
@@ -87,6 +93,9 @@ class DIGITS():
         
 # a single digit 7-seg object 
 class SSEG():
+
+    # to be defined externaly to write to LCD display 
+    draw_fct = debug_draw_fct    # #  draw_fct(x1,y1,x2,y2,color)
     
     # position of the 7 segments as relative coord.  top left = 0,0  , for size 16x18 font.  definition includes separation withing size
     # Segments = t, m , b  (horizontal top...bot), tl, tr and bl,br for top-left ... bottom-right vertical segments
@@ -141,7 +150,7 @@ class SSEG():
     def __init__(self, 
                  pos_x, pos_y,  # bottom left x,y position as for text
                  color = 0,     #  0 for black (clear)
-                 draw_fct=None):     #  draw_fct(p1=(x,y), p2=(x,y), color) 
+                 ):
         
         self.pos_x = pos_x
         self.pos_y = pos_y - SSEG.SY
@@ -149,7 +158,6 @@ class SSEG():
         self.y_next = self.pos_y + SSEG.YSIZE
         self.size = None
         self.value = 'x'    # 'x' is off
-        self.draw = draw_fct
         self.color = color
         self.color_clear = 0x0000
         self.segments = []   # list of activated SEGMENT ojects
@@ -175,20 +183,14 @@ class SSEG():
         s2 = s[1]
         p1 = [s1[0]+self.pos_x, s1[1]+self.pos_y]
         p2 = [s2[0]+self.pos_x, s2[1]+self.pos_y]
-        self.draw(p1, p2, color)
+        self.draw(p1[0], p1[1], p2[0], p2[1], color)
     
     # set all active segments off
     def clear(self): 
         for s in self.segments:
             self.draw_segment(s,clear=True)
         self.segments = []
-
-
-    def debug_draw(p1, p2, color):
-        print("col",color)
-        print(p1,p2)
-    
-        
+       
 
 #%%
 
@@ -200,8 +202,8 @@ if False:
         print(p1,p2)
         
     
-    digit1 = SSEG(0,100,color=1, draw_fct=printFct)
-    digit2 = SSEG(SSEG.SX,100,color=1, draw_fct=printFct)
+    digit1 = SSEG(0,100,color=1)
+    digit2 = SSEG(SSEG.SX,100,color=1)
     
     digit1.draw_segment('t')
     digit1.clear()

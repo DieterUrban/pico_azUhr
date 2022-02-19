@@ -44,49 +44,24 @@ Screen layout:
 #%%
 #####################################################
 import sys, os
-import time
-from LCD_7seg import SSEG, DIGITS, HM
 
 EMBEDDED = False  # set True if running embedded (>enables io-port, RTC time setting, display out)
-EMBEDDED = True
+#EMBEDDED = True
 if 'micropython' in str(sys.implementation):
     EMBEDDED = True
+
+import time
+from LCD_7seg import SSEG, DIGITS, HM, debug_draw_fct
+from worktime import WT_Day, WT_Week, Config, Logging, MY_Time
+
 
 if EMBEDDED:
     import machine
     from Pico_LCD1_3 import LCD_1inch3
     import framebuf
-    
     from LCD1_3_setup import *
-    '''
-    BL = 13
-    DC = 8
-    RST = 12
-    MOSI = 11
-    SCK = 10
-    CS = 9
-
-    pwm = PWM(Pin(BL))
-    pwm.freq(1000)
-    pwm.duty_u16(32768)#max 65535
-
-    LCD = LCD_1inch3()
-    #color BRG
-    LCD.fill(0x0000)
-    LCD.show()
-
-    KEYA = Pin(15,Pin.IN,Pin.PULL_UP)
-    KEYB = Pin(17,Pin.IN,Pin.PULL_UP)
-    KEYX = Pin(19 ,Pin.IN,Pin.PULL_UP)
-    KEYY= Pin(21 ,Pin.IN,Pin.PULL_UP)
-
-    UP = Pin(2,Pin.IN,Pin.PULL_UP)
-    DOWN = Pin(18,Pin.IN,Pin.PULL_UP)
-    LEFT = Pin(16,Pin.IN,Pin.PULL_UP)
-    RIGHT = Pin(20,Pin.IN,Pin.PULL_UP)
-    CTRL = Pin(3,Pin.IN,Pin.PULL_UP)
-    '''
-
+    SSEG.draf_fct = LCD.line
+ 
 else:
 #    import keyboard    # requires root for operation !!!!!
 #    def getchr():
@@ -127,155 +102,111 @@ TOTAL_WT = 0.   # accumulated work time - planned worktime
 WORK_TIME_PLAN = 35.0 # work time per hour plan
 COLOR = LCD.green if EMBEDDED else 0  # default when printing
 
+#%%        
 #####################################################
-
-class WT_Day():
-    """
-    Provides:
-        Zeitdaten eines Tages sowie Methoden rund um Zeiteinträge
-    """
-    wd = 0           # week day (0 = Monday)
-    start = -1.      # todays hour decimal first start time
-    stop = -1.       # todays hour decimal final stop time
-    actualStart = -1.  # recent start time (e.g. after break)
-    actualStop = -1.   # recent stop time
-    wtPlan = 0.        # work time per day plan
-    totalWtLastStop = 0.  # total working hours excluding breaks up to last stop
-    totalWt = 0.       # total working hours excluding breaks up to actual time
-    totalBalance = 0.  # work time balance up to actual time
-    totalHours = 0.    # total time stop - start
-    totalBreak = 0.    # break time entered by user  (actual break will not be included unless work started again or day ended)
-    working = False    # work or break/endOfWork status
-    
-    @classmethod
-    def set_Wt_Plan(cls, work_time_plan):
-        cls.wtPlan = round(work_time_plan/5.,2)
-
-    def __init__(self, time_wd=0, 
-                       work_time_plan=WORK_TIME_PLAN):
-        WT_Day.set_Wt_Plan(work_time_plan)
-        self.wd = time_wd    # week day    
-    
-    def startWork(self, time_h=0.):
-        """
-        Set start work timestamp. 
-        If not first --> end break and update break time
-        """
-        self.working = True
-        if self.start < 0:
-            self.start = time_h
-        if self.actualStop >= 0:
-            # update break time
-            breakTime = time_h - self.actualStop
-            self.totalBreak += breakTime
-        self.actualStart = time_h
-        
-    
-    def stopWork(self, time_h=0.):
-        """
-        Set stop work timestamp. 
-        Update totalWT = total Worktime
-        """
-        if self.start < 0:
-            # stop before start ... do nothing
-            return
-        if self.stop < 0:
-            pass
-        self.working = False
-        self.actualStop = time_h
-        workTimeFromLastStart = time_h - self.actualStart
-        self.totalWtLastStop += workTimeFromLastStart
-        self.totalWt = self.totalWtLastStop
-        self.totalBalance = self.totalWt - WT_Day.wtPlan
-
-    def update(self, time_h):
-        """
-        update total hours, balance and breaks
-        
-        """
-        if self.working:
-            self.totalHours = time_h - self.start
-            workTime = time_h - self.actualStart
-            self.totalWt = self.totalWtLastStop + workTime
-        self.totalBalance = self.totalWt - WT_Day.wtPlan
-        return self.totalWt
-
-        
-        
-    def endDay(self):
-        """
-        End of day: update stop and total hours
-        
-        Returns:
-            todays working time
-        """
-        self.working = False
-        self.stop = self.actualStop
-        self.totalHours = self.stop - self.start
-        self.totalBalance = self.totalWt - WT_Day.wtPlan
-        return self.totalWt
-        
-#####################################################
+# Generate display Output format
+"""
+Tag WTag  AZ     Pause  +/-
+0   Fr    00:00  00:00  00:00
+-1  Do    
+-2  Mi
+-3  Di
+-4  Mo
+Woche     00:00  00:00  00:00
+W-1       00:00  00:00  00:00
+Sollzeit: 35h
+"""
 
 class Show_Days():
     """
     Provides:
-        Objekte und anzeige von 5 Zeilen AZ, +/- und Pause
+        Anzeige von 5 Zeilen jeweils: AZ, +/- und Pause
     """
     header = ['AZ','+/-', 'Pause'] # header line content
     days = ['Mo','Di','Mi','Do','Fr']
+    intro = [' 0  ','-1  ','-2  ','-3  ','-4  ']
     
-    def __init__():
+    def __init__(self, x0, y0, color, lines=5, intro=None):  # x0 = 1st digit start
         self.hhmm = []  # will get 5 hh:mm display objects
-        self.actual = 0  # pointer to actual day in days
-        self.
+        self.actual = 0  # pointer to actual day in days, 0 is monday
+        intro = intro or Show_Days.intro.copy()
+        
+        for i in range(lines):
+            line_hhmm = Show_Line(x0, y0, color, intro.pop(0))
+            self.hhmm += [line_hhmm]
+            y0  += SSEG.YSIZE  # next line y value
+        self.y_next = y0
+     
+    # set defaults as worktime plan ...
+    def setDefaults(self, dayPlan, weekPlan ):
+        self.dayPlan = dayPlan
+        self.weekPlan = weekPlan
     
-    def show():
-        pass
-    
-    # update todays values
-    def update():
-        pass
+    # update todays values and show
+    def update(self, az,balance,breaktime):
+        values = [az, balance, breaktime]
+        wday = Show_Days.days[self.actual]
+        self.hhmm[0].set(values, wday)
     
     # roll over to next day  (and end actual day)
-    def next_day():
-        pass
+    def next_day(self):
+        n_wday = (self.actual + len(self.hhmm)-2)%6
+        for i in range(len(self.hhmm)-2,0,-1):
+            # copy actual day to next
+            values = self.hhmm[i].values
+            self.hhmm[i+1].set(values,Show_Days[n_wday])
+            n_wday = n_wday -1 if n_wday > 0 else 6
+            
+        self.hhmm[0] = [0., -self.dayPlan, 0.]         # new day az, +/- , break
+        self.actual = (self.actual+1)%6
     
     # roll over to monday, new week
-    def new_week():
-        pass
-
-
-#####################################################
-class WT_Week():
-    """
-    Provides:
-        Zeitdaten einer Woche sowie Methoden dazu
-    """
-    
-    wtPlan = 0.
-    totalWt = 0.       # total working hours excluding breaks
-    totalBalance = 0.  # work time balance
-    totalBreak = 0.    # break time entered by user    
-    
-    def __init__(self, work_time_plan=WORK_TIME_PLAN):
-        WT_Week.wtPlan = work_time_plan
-    
-    def addDay(self, totalWt, totalBalance, totalBreak ):
-        # add actual day working times
-        self.totalWt += totalWt
-        self.totalBalance += totalBalance
-        self.totalBreak += totalBreak
-    
-    def checkWeekEnd(self):
-        # check if week ended
-        pass
-    
-    def update(self):
-        # update week totals
-        pass
+    def new_week(self):
+        self.actual = 0  # set to monday
         
 
+class Show_Line():
+    """
+    Provides:
+        Anzeige von einer Zeile jeweils: AZ, +/- und Pause
+    """
+    
+    def __init__(self, x0, y0, color, intro=''):
+        self.hhmm = []  # will get 3 hh:mm display objects
+        self.values = []  # 3 float values for AZ, +/- and pause
+        self.intro = intro
+        self.y = y0
+        
+        x = x0
+        line_hhmm=[]
+        for i in range(3):
+            # 3 hh:mm per line
+            hhmm = HM(x, y, color=color)
+            line_hhmm += [hhmm]
+            x = hhmm.x_next + dx
+        
+        self.x_next = x
+        self.hhmm = line_hhmm
+
+    
+    # Werte setzen und Anzeige der Zeile
+    def set(self, values, pre_text=''):      # values as 3 float, pre_text e.g. weekday
+        UI.print(self.intro+pre_text,self.y)
+        self.values = values
+        for hhmm in self.hhmm:
+            value = values.pop[0]
+            sign = ' '
+            if value < 0:
+                value = abs(value)
+                sign = '-'
+            value = min(99.99,value)
+            hh = int(value)
+            mm = (value-hh)*0.6
+            hhmm_string = "%s%02d:%02d"%(sign,hh,mm)
+            #hhmm_string = "%s%05.2f"%(sign,value)
+            hhmm.set(hhmm_string)
+        
+#%%    
 #####################################################
 
 class UI():
@@ -374,8 +305,7 @@ class UI():
             # FrameBuffer.line(x1, y1, x2, y2, c)
             UI.FBUF.line(p1[0], p1[1], p2[0], p2[1], color)
         else:
-            SSEG.debug_draw(p1,p2,color)
-
+            debug_draw_fct(p1[0], p1[1], p2[0], p2[1], color)
             
 
 class UI_():
@@ -386,119 +316,14 @@ class UI_():
         LCD.text(_txt,int(x),int(y),COLOR)    # x,y  from top left corner
         LCD.show()
 
-
 #####################################################
-    
-class Config():
-    """
-    Provides:
-        Config daten wie Soll AZ und Routinen zum lesen / schreiben
-    """
-    weekday = 0          # Montag ~ 0
-    date = None          # date format tbd
-    workTimePlan = 35.0  # planned working time per week
-    breakTimeLunch = 0.5 # lunch break
-    breakTimeBf = 0.25   # breakfast break
-    workTimeBreak = 6.   # treshold work time to apply breakTimeBf
-    configFile = 'config.json'
-    
-    @classmethod
-    def read(cls):
-        print(cls.configFile)
-    
-    @classmethod
-    def write(cls):
-        pass
-    
-#####################################################
-class Logging():
-    """
-    Provides:
-        Loggin of working time data per day (and per week)
-    """
-    
-    @classmethod
-    def write_day(cls):
-        pass
-
-    @classmethod
-    def write_week(cls):
-        pass
-
-    
-#####################################################
-class MY_Time():
-    TSEC_OFFSET = 0 # offset from time.time to real time-date (used in non embedded environment)
-    localTimeTuple = list(time.localtime(time.time()))
-    tsec = 0
-    RTC = None
-
-    @classmethod
-    def getLocaltime(cls):
-        # get time data from system time (+ optional offset if not micropython)
-        MY_Time.tsec = time.time() + MY_Time.TSEC_OFFSET
-        lt = list(time.localtime(MY_Time.tsec))
-        MY_Time.localTimeTuple = lt
-        time_h = lt[3] + lt[4]/60. + lt[5]/(60.*60)   # decimal h.min_sec
-        time_wd = lt[6]
-        return time_h, time_wd
-
-    @classmethod
-    def changeTime(cls, time_h):   # decimal hour.min_sec
-        # change time to target
-        h = int(time_h)
-        time_h = (time_h-h)*60
-        m = int(time_h)
-        time_h = (time_h-m)*60
-        s = int(time_h)
-        MY_Time.localTimeTuple[3:6] = (h,m,s)        
-        time_h, time_wd = MY_Time.setRTCtime()
-        return time_h, time_wd
-
-    @classmethod
-    def setH0(cls,hour):
-        # reset to hour start
-        MY_Time.localTimeTuple[3] = int(hour)     # hour
-        MY_Time.localTimeTuple[4] = 0             # minutes
-        MY_Time.localTimeTuple[5] = 0             # sec
-        time_h, time_wd = MY_Time.setRTCtime()
-        return time_h
-
-
-    @classmethod
-    def setH(cls, hour):
-        # set hour, leave min:sec unchanged
-        MY_Time.localTimeTuple[3] = int(hour)
-        time_h, time_wd = MY_Time.setRTCtime()
-        return time_h
-
-    @classmethod
-    def setWd(cls, wd):
-        # set weekday
-        MY_Time.localTimeTuple[6] = int(wd)
-        time_h, time_wd = MY_Time.setRTCtime()
-        return time_wd
-
-    @classmethod
-    def setRTCtime(cls):
-        # change rtc or adjust offset if no RTC (not embedded micropython)
-        if EMBEDDED:
-            MY_Time.RTC.datetime(tuple(MY_Time.localTimeTuple))
-        else:
-            userAdjusted_tsec = time.mktime(tuple(MY_Time.localTimeTuple))
-            tsec = time.time()
-            MY_Time.TSEC_OFFSET = userAdjusted_tsec - tsec
-        time_h, time_wd = MY_Time.getLocaltime()
-        return time_h, time_wd
-
-#####################################################
-
     
 def main():
     global TIME_H, TIME_WD, TOTAL_WT, WORK_TIME_PLAN, KEY_CHR, COLOR
     print("start main")
     
-    MY_Time.RTC = machine.RTC()
+    if EMBEDDED:
+        MY_Time.RTC = machine.RTC()
     
     config = Config()
 #%%
@@ -538,11 +363,18 @@ def main():
     Woche     00:00  00:00  00:00
     W-1       00:00  00:00  00:00
     Sollzeit: 35h
-
     '''
     
     y = y0
     x = x0
+
+    UI.print("Tag WTag  AZ    +/-  Pause",y)
+    days = Show_Days(x0,y0,ssColor)
+    y = days.y_next
+    weeks = Show_Days(x,y0,ssColor,lines=2, intro=['Woche','Wo-1'])
+    UI.print("Sollzeit: 35h",200)
+
+
     hhmm_days = []   # get list (5 rows) of list (3 colums) of HM objects
     for d in range(5):
         # one line per last 5 days
@@ -550,7 +382,7 @@ def main():
         day_hhmm=[]
         for i in range(3):
             # 3 hh:mm per line
-            hhmm = HM(x, y, color=ssColor, draw_fct=UI.drawLine)
+            hhmm = HM(x, y, color=ssColor)
             day_hhmm += [hhmm]
             x = hhmm.x_next + dx
         y += dy
@@ -562,7 +394,7 @@ def main():
         day_hhmm=[]
         for i in range(3):
             # 3 hh:mm per line
-            hhmm = HM(x, y, color=ssColor, draw_fct=UI.drawLine)
+            hhmm = HM(x, y, color=ssColor)
             day_hhmm += [hhmm]
             x = hhmm.x_next + dx
         hhmm_days += [day_hhmm]
@@ -575,7 +407,7 @@ def main():
         wk_hhmm=[]
         for i in range(3):
             # 3 hh:mm per line
-            hhmm = HM(x, y, color=ssColor, draw_fct=UI.drawLine)
+            hhmm = HM(x, y, color=ssColor)
             wk_hhmm += [hhmm]
             x = hhmm.x_next + dx
         y += dy
@@ -584,18 +416,18 @@ def main():
         
     #digits = [SSEG(10,200,ssColor,UI.drawLine), SSEG(20,200,ssColor,UI.drawLine)]
 
-    #hh = DIGITS(2, x0, y0, color=ssColor, draw_fct=UI.drawLine, right_separator=':')    
+    #hh = DIGITS(2, x0, y0, color=ssColor, right_separator=':')    
     #hh.set('59')
     
-    #hm = HM(x0+50, y0, color=ssColor, draw_fct=UI.drawLine) 
+    #hm = HM(x0+50, y0, color=ssColor) 
     #hm.set('15:43')
 
     #hm2y = hm.y_next + SSEG.YSIZE
-    #hm2 = HM(x0+50, hm2y, color=ssColor, draw_fct=UI.drawLine) 
+    #hm2 = HM(x0+50, hm2y, color=ssColor) 
     #hm2.set('04:11')
 
 
-    #d = SSEG(50,180,LCD.white,UI.drawLine)
+    #d = SSEG(50,180,LCD.white)
     #d.draw_segment('tr')
     #d.draw_segment('br')
     #d.clear()
