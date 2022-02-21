@@ -54,14 +54,15 @@ import time
 from LCD_7seg import SSEG, DIGITS, HM, debug_draw_fct
 from worktime import WT_Day, WT_Week, Config, Logging, MY_Time
 
+import machine
+import framebuf
+from Pico_LCD1_3 import LCD_1inch3
+from LCD1_3_setup import *
+SSEG.draf_fct = LCD.line
 
 if EMBEDDED:
-    import machine
-    from Pico_LCD1_3 import LCD_1inch3
-    import framebuf
-    from LCD1_3_setup import *
-    SSEG.draf_fct = LCD.line
- 
+    pass
+
 else:
 #    import keyboard    # requires root for operation !!!!!
 #    def getchr():
@@ -374,7 +375,7 @@ def main():
     weeks = Show_Days(x,y0,ssColor,lines=2, intro=['Woche','Wo-1'])
     UI.print("Sollzeit: 35h",200)
 
-
+#%%
     hhmm_days = []   # get list (5 rows) of list (3 colums) of HM objects
     for d in range(5):
         # one line per last 5 days
