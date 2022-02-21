@@ -8,11 +8,13 @@ Dummy machine library for debugging with python
 
 provides dummy routines for
 from machine import Pin,SPI,PWM
+time.sleep_ms
 
 @author: urban
 """
 
-
+import time
+time.sleep_ms = lambda x:x
 
 class SPI():
     

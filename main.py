@@ -46,10 +46,11 @@ Screen layout:
 import sys, os
 
 EMBEDDED = False  # set True if running embedded (>enables io-port, RTC time setting, display out)
-#EMBEDDED = True
+EMBEDDED = True
 if 'micropython' in str(sys.implementation):
     EMBEDDED = True
 
+#%%
 import time
 from LCD_7seg import SSEG, DIGITS, HM, debug_drawLine_fct
 from worktime import WT_Day, WT_Week, Config, Logging, MY_Time
@@ -137,6 +138,7 @@ class Show_Days():
             self.hhmm += [line_hhmm]
             y0  += SSEG.YSIZE  # next line y value
         self.y_next = y0
+        self.setDefaults((39./5), 39.)
      
     # set defaults as worktime plan ...
     def setDefaults(self, dayPlan, weekPlan ):
@@ -150,7 +152,7 @@ class Show_Days():
         self.hhmm[0].set(values, wday)
     
     # roll over to next day  (and end actual day)
-    def next_day(self):
+    def next_period(self):
         n_wday = (self.actual + len(self.hhmm)-2)%6
         for i in range(len(self.hhmm)-2,0,-1):
             # copy actual day to next
@@ -373,38 +375,9 @@ def main():
     days = Show_Days(x0,y0,ssColor, dx)
     y = days.y_next
     weeks = Show_Days(x,y0,ssColor, dx, lines=2, intro=['Woche','Wo-1'])
-    UI.print("Sollzeit: 35h",200)
-
-#%%
+    UI.print("Sollzeit: 35h",200)    
         
-        
-    #digits = [SSEG(10,200,ssColor,UI.drawLine), SSEG(20,200,ssColor,UI.drawLine)]
-
-    #hh = DIGITS(2, x0, y0, color=ssColor, right_separator=':')    
-    #hh.set('59')
     
-    #hm = HM(x0+50, y0, color=ssColor) 
-    #hm.set('15:43')
-
-    #hm2y = hm.y_next + SSEG.YSIZE
-    #hm2 = HM(x0+50, hm2y, color=ssColor) 
-    #hm2.set('04:11')
-
-
-    #d = SSEG(50,180,LCD.white)
-    #d.draw_segment('tr')
-    #d.draw_segment('br')
-    #d.clear()
-    #d.set(5)
-    #d.clear()
-    #d.draw_segment('tr',True)
-
-    #digits[0].set('1')
-    #digits[1].set(0)
-    
-    #LCD.line(10, 180, 30, 180, LCD.red)
-    #LCD.line(100, 180, 100, 220, LCD.blue)
-
 #%%    
     while True:
         TIME_H, TIME_WD = MY_Time.getLocaltime()        
@@ -483,10 +456,10 @@ def main():
             # strftime not in micropython
             #UI.print("%s  Hour %.4f  weekDay %d"%(time.strftime("%d.%m %H:%M:%S",_tt),TIME_H, TIME_WD),10)
             UI.print("%s  Hour %.2f  weekDay %d"%('datum',TIME_H, TIME_WD),10)
-            UI.print("Today Balance %.3f  Brakes %.3f  Hours %.4f"%(wt_day.totalBalance,wt_day.totalBreak, wt_day.totalHours),30)
-            UI.print("yest  Balance %.3f  Brakes %.3f  Hours %.4f"%(wt_last_day.totalBalance,wt_last_day.totalBreak, wt_last_day.totalHours),50)
-            UI.print("Week  Balance %d"%0, 70)
-            UI.print("Last Wk Balan %d "%0, 90)
+            #UI.print("Today Balance %.3f  Brakes %.3f  Hours %.4f"%(wt_day.totalBalance,wt_day.totalBreak, wt_day.totalHours),30)
+            #UI.print("yest  Balance %.3f  Brakes %.3f  Hours %.4f"%(wt_last_day.totalBalance,wt_last_day.totalBreak, wt_last_day.totalHours),50)
+            #UI.print("Week  Balance %d"%0, 70)
+            #UI.print("Last Wk Balan %d "%0, 90)
             ss = "%.3f"%TIME_H
             ss = ss[-2:]
             UI.print("xxxx %s"%ss,110)
@@ -508,7 +481,9 @@ def main():
         # trigger start or stop ...
 
         # end of day actions
-        if TIME_H >= 23.98 and dayEndProcessed == False:  # last minute
+        condition = (TIME_H >= 23.98)
+        condition = ((TIME_H *60*60) % 20 == 0)  # debugging
+        if condition and dayEndProcessed == False:  # last minute
             dayEndProcessed = True
             if not EMBEDDED:
                 print("Day Ended")
@@ -519,12 +494,19 @@ def main():
             Config.write()
             wt_last_day = wt_day
             wt_day =  WT_Day(work_time_plan=WORK_TIME_PLAN)    
+            days.next_period()  # roll over days and print
             if TIME_WD == 4:             
                 # Friday end of day
                 if not EMBEDDED:
                     print("Week Ended")
                 wt_last_week = wt_week
-                wt_week = WT_Week(work_time_plan=WORK_TIME_PLAN)    
+                wt_week = WT_Week(work_time_plan=WORK_TIME_PLAN)
+                days.new_week()
+            if TIME_WD == 6:             
+                # Sunday end of day
+                if not EMBEDDED:
+                    print("Week new")
+                weeks.next_period()
 
         if TIME_H < 0.1:
             dayEndProcessed = False

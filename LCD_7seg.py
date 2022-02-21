@@ -1,9 +1,9 @@
 """
 impl. of 7-seg pattern for LCD display using external draw line function
 
-SSEG.draw_fct  must be set after importing library to draw to display, otherwise just debug print is used
-     draw_fct(p1_x, p1_y, p2_x, p2_y, color)
-SSEG.draw_fct = LCD.line
+SSEG.drawLine_fct  must be set after importing library to draw to display, otherwise just debug print is used
+     drawLine_fct(p1_x, p1_y, p2_x, p2_y, color)
+SSEG.drawLine_fct = framebuf.FrameBuffer.line
 
 """
 #%%
@@ -187,7 +187,7 @@ class SSEG():
         s2 = s[1]
         p1 = [s1[0]+self.pos_x, s1[1]+self.pos_y]
         p2 = [s2[0]+self.pos_x, s2[1]+self.pos_y]
-        SSEG.draw_fct(p1[0], p1[1], p2[0], p2[1], color)
+        SSEG.drawLine_fct(p1[0], p1[1], p2[0], p2[1], color)
     
     # set all active segments off
     def clear(self): 
@@ -216,3 +216,29 @@ if False:
     digit2.set(1,pt=True)
 
 
+#digits = [SSEG(10,200,ssColor,UI.drawLine), SSEG(20,200,ssColor,UI.drawLine)]
+
+    #hh = DIGITS(2, x0, y0, color=ssColor, right_separator=':')    
+    #hh.set('59')
+    
+    #hm = HM(x0+50, y0, color=ssColor) 
+    #hm.set('15:43')
+
+    #hm2y = hm.y_next + SSEG.YSIZE
+    #hm2 = HM(x0+50, hm2y, color=ssColor) 
+    #hm2.set('04:11')
+
+
+    #d = SSEG(50,180,LCD.white)
+    #d.draw_segment('tr')
+    #d.draw_segment('br')
+    #d.clear()
+    #d.set(5)
+    #d.clear()
+    #d.draw_segment('tr',True)
+
+    #digits[0].set('1')
+    #digits[1].set(0)
+    
+    #LCD.line(10, 180, 30, 180, LCD.red)
+    #LCD.line(100, 180, 100, 220, LCD.blue)

@@ -130,6 +130,7 @@ class WT_Week():
     
     def checkWeekEnd(self):
         # check if week ended
+        # e.g. check if no keypress for > 12h
         pass
     
     def update(self):
