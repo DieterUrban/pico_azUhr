@@ -8,18 +8,22 @@ SSEG.draw_fct = LCD.line
 """
 #%%
 
-def debug_draw_fct(x1,y1, x2,y2, color):
+def debug_drawLine_fct(x1,y1, x2,y2, color):
     print((x1,y1),(x2,y2),color)
 
 
-# create 00:00 object for e.g. hour:min display, optional with leading sign
+# create 00:00 object for e.g. hour:min display, optional with leading sign, length 2 (hh:mm) or 3 (hh:mm:ss)
 class HM():
-    def __init__(self, pos_x, pos_y, color=0, sign=True):
-        n = 3 if sign else 2
-        self.hh = DIGITS(n, pos_x, pos_y, color, fill_zeros=False, right_separator=':')
-        pos_x2 = self.hh.x_next
-        self.mm = DIGITS(2, pos_x2, pos_y, color, right_separator='')
-        self.x_next = self.mm.x_next
+    def __init__(self, pos_x, pos_y, color=0, sign=True, n=2):
+        nhh = 3 if sign else 2
+        self.hh = DIGITS(nhh, pos_x, pos_y, color, fill_zeros=False, right_separator=':')
+        pos_x_next = self.hh.x_next
+        self.mm = DIGITS(2, pos_x_next, pos_y, color, right_separator='')
+        pos_x_next = self.hh.x_next
+        if n == 3:
+            self.ss = DIGITS(2, pos_x_next, pos_y, color, right_separator='')
+            pos_x_next = self.ss.x_next
+        self.x_next = pos_x_next
         self.y_next = pos_y
 
     def set(self, value):    # value is already '01:22' type string
@@ -95,7 +99,7 @@ class DIGITS():
 class SSEG():
 
     # to be defined externaly to write to LCD display 
-    draw_fct = debug_draw_fct    # #  draw_fct(x1,y1,x2,y2,color)
+    drawLine_fct = debug_drawLine_fct    # #  drawLine_fct(x1,y1,x2,y2,color), as framebuf.FrameBuffer.line(p1[0], p1[1], p2[0], p2[1], color)
     
     # position of the 7 segments as relative coord.  top left = 0,0  , for size 16x18 font.  definition includes separation withing size
     # Segments = t, m , b  (horizontal top...bot), tl, tr and bl,br for top-left ... bottom-right vertical segments
@@ -183,7 +187,7 @@ class SSEG():
         s2 = s[1]
         p1 = [s1[0]+self.pos_x, s1[1]+self.pos_y]
         p2 = [s2[0]+self.pos_x, s2[1]+self.pos_y]
-        self.draw(p1[0], p1[1], p2[0], p2[1], color)
+        SSEG.draw_fct(p1[0], p1[1], p2[0], p2[1], color)
     
     # set all active segments off
     def clear(self): 

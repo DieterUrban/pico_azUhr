@@ -51,7 +51,7 @@ if 'micropython' in str(sys.implementation):
     EMBEDDED = True
 
 import time
-from LCD_7seg import SSEG, DIGITS, HM, debug_draw_fct
+from LCD_7seg import SSEG, DIGITS, HM, debug_drawLine_fct
 from worktime import WT_Day, WT_Week, Config, Logging, MY_Time
 
 import machine
@@ -127,13 +127,13 @@ class Show_Days():
     days = ['Mo','Di','Mi','Do','Fr']
     intro = [' 0  ','-1  ','-2  ','-3  ','-4  ']
     
-    def __init__(self, x0, y0, color, lines=5, intro=None):  # x0 = 1st digit start
+    def __init__(self, x0, y0, dx, color, lines=5, intro=None):  # x0 = 1st digit start, dx = separation between hh:mm
         self.hhmm = []  # will get 5 hh:mm display objects
         self.actual = 0  # pointer to actual day in days, 0 is monday
         intro = intro or Show_Days.intro.copy()
         
         for i in range(lines):
-            line_hhmm = Show_Line(x0, y0, color, intro.pop(0))
+            line_hhmm = Show_PrintLine(x0, y0, color, dx, intro.pop(0))
             self.hhmm += [line_hhmm]
             y0  += SSEG.YSIZE  # next line y value
         self.y_next = y0
@@ -166,13 +166,13 @@ class Show_Days():
         self.actual = 0  # set to monday
         
 
-class Show_Line():
+class Show_PrintLine():
     """
     Provides:
         Anzeige von einer Zeile jeweils: AZ, +/- und Pause
     """
     
-    def __init__(self, x0, y0, color, intro=''):
+    def __init__(self, x0, y0, color, dx, intro=''):
         self.hhmm = []  # will get 3 hh:mm display objects
         self.values = []  # 3 float values for AZ, +/- and pause
         self.intro = intro
@@ -182,7 +182,7 @@ class Show_Line():
         line_hhmm=[]
         for i in range(3):
             # 3 hh:mm per line
-            hhmm = HM(x, y, color=color)
+            hhmm = HM(x, self.y, color=color)
             line_hhmm += [hhmm]
             x = hhmm.x_next + dx
         
@@ -195,7 +195,7 @@ class Show_Line():
         UI.print(self.intro+pre_text,self.y)
         self.values = values
         for hhmm in self.hhmm:
-            value = values.pop[0]
+            value = values.pop(0)
             sign = ' '
             if value < 0:
                 value = abs(value)
@@ -306,7 +306,7 @@ class UI():
             # FrameBuffer.line(x1, y1, x2, y2, c)
             UI.FBUF.line(p1[0], p1[1], p2[0], p2[1], color)
         else:
-            debug_draw_fct(p1[0], p1[1], p2[0], p2[1], color)
+            debug_drawLine_fct(p1[0], p1[1], p2[0], p2[1], color)
             
 
 class UI_():
@@ -370,49 +370,12 @@ def main():
     x = x0
 
     UI.print("Tag WTag  AZ    +/-  Pause",y)
-    days = Show_Days(x0,y0,ssColor)
+    days = Show_Days(x0,y0,ssColor, dx)
     y = days.y_next
-    weeks = Show_Days(x,y0,ssColor,lines=2, intro=['Woche','Wo-1'])
+    weeks = Show_Days(x,y0,ssColor, dx, lines=2, intro=['Woche','Wo-1'])
     UI.print("Sollzeit: 35h",200)
 
 #%%
-    hhmm_days = []   # get list (5 rows) of list (3 colums) of HM objects
-    for d in range(5):
-        # one line per last 5 days
-        x = x0
-        day_hhmm=[]
-        for i in range(3):
-            # 3 hh:mm per line
-            hhmm = HM(x, y, color=ssColor)
-            day_hhmm += [hhmm]
-            x = hhmm.x_next + dx
-        y += dy
-
-    hhmm_days = []   # get list (5 rows) of list (3 colums) of HM objects
-    for d in range(5):
-        # one line per last 5 days
-        x = x0
-        day_hhmm=[]
-        for i in range(3):
-            # 3 hh:mm per line
-            hhmm = HM(x, y, color=ssColor)
-            day_hhmm += [hhmm]
-            x = hhmm.x_next + dx
-        hhmm_days += [day_hhmm]
-        y += dy
-
-    hhmm_weeks = []   # get list (2 rows) of list (3 colums) of HM objects
-    for d in range(2):
-        # one line for this and last week
-        x = x0
-        wk_hhmm=[]
-        for i in range(3):
-            # 3 hh:mm per line
-            hhmm = HM(x, y, color=ssColor)
-            wk_hhmm += [hhmm]
-            x = hhmm.x_next + dx
-        y += dy
-        hhmm_weeks +=[wk_hhmm]
         
         
     #digits = [SSEG(10,200,ssColor,UI.drawLine), SSEG(20,200,ssColor,UI.drawLine)]
@@ -528,7 +491,9 @@ def main():
             ss = ss[-2:]
             UI.print("xxxx %s"%ss,110)
             #ss = "34"
-            UI.printNumber(ss, digits=digits)
+            # UI.printNumber(ss, digits=digits)
+            days.update(az=wt_day.totalHours, balance=wt_day.totalBalance, breaktime=wt_day.totalBreak)
+            
         else:
             _sec = time.mktime(tuple(MY_Time.localTimeTuple))
             _tt = time.localtime(_sec)                    
