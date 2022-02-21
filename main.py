@@ -59,7 +59,6 @@ import machine
 import framebuf
 from Pico_LCD1_3 import LCD_1inch3
 from LCD1_3_setup import *
-SSEG.draf_fct = LCD.line
 
 if EMBEDDED:
     pass
@@ -128,17 +127,18 @@ class Show_Days():
     days = ['Mo','Di','Mi','Do','Fr']
     intro = [' 0  ','-1  ','-2  ','-3  ','-4  ']
     
-    def __init__(self, x0, y0, dx, color, lines=5, intro=None):  # x0 = 1st digit start, dx = separation between hh:mm
+    def __init__(self, x0, y0, dx, dy, color, lines=5, intro=None):  # x0 = 1st digit start, dx = separation between hh:mm
         self.hhmm = []  # will get 5 hh:mm display objects
         self.actual = 0  # pointer to actual day in days, 0 is monday
+        self.setDefaults((39./5), 39.)
         intro = intro or Show_Days.intro.copy()
         
         for i in range(lines):
-            line_hhmm = Show_PrintLine(x0, y0, color, dx, intro.pop(0))
+            line_hhmm = Show_PrintLine(x0, y0, color, dx, intro[i])
             self.hhmm += [line_hhmm]
-            y0  += SSEG.YSIZE  # next line y value
+            y0  += dy  # next line y value
         self.y_next = y0
-        self.setDefaults((39./5), 39.)
+        self.values = self.hhmm[0].values
      
     # set defaults as worktime plan ...
     def setDefaults(self, dayPlan, weekPlan ):
@@ -147,17 +147,23 @@ class Show_Days():
     
     # update todays values and show
     def update(self, az,balance,breaktime):
-        values = [az, balance, breaktime]
+        self.values = [az, balance, breaktime]
         wday = Show_Days.days[self.actual]
-        self.hhmm[0].set(values, wday)
+        self.hhmm[0].set(self.values, wday)
+        
+    # update todays values and show
+    def show(self):
+        self.hhmm[0].show()
+
     
     # roll over to next day  (and end actual day)
     def next_period(self):
         n_wday = (self.actual + len(self.hhmm)-2)%6
-        for i in range(len(self.hhmm)-2,0,-1):
+        for i in range(len(self.hhmm)-2,0,-1):  # 3,2,1
             # copy actual day to next
+            # print(i)
             values = self.hhmm[i].values
-            self.hhmm[i+1].set(values,Show_Days[n_wday])
+            self.hhmm[i+1].set(values,Show_Days.intro[n_wday])
             n_wday = n_wday -1 if n_wday > 0 else 6
             
         self.hhmm[0] = [0., -self.dayPlan, 0.]         # new day az, +/- , break
@@ -171,13 +177,14 @@ class Show_Days():
 class Show_PrintLine():
     """
     Provides:
-        Anzeige von einer Zeile jeweils: AZ, +/- und Pause
+        Objekt und Anzeige von einer Zeile jeweils: AZ, +/- und Pause als hh.mm
     """
     
     def __init__(self, x0, y0, color, dx, intro=''):
         self.hhmm = []  # will get 3 hh:mm display objects
-        self.values = []  # 3 float values for AZ, +/- and pause
+        self.values = [0.,0.,0.]  # 3 float values for AZ, +/- and pause
         self.intro = intro
+        self.day_text = ''
         self.y = y0
         
         x = x0
@@ -193,21 +200,27 @@ class Show_PrintLine():
 
     
     # Werte setzen und Anzeige der Zeile
-    def set(self, values, pre_text=''):      # values as 3 float, pre_text e.g. weekday
-        UI.print(self.intro+pre_text,self.y)
-        self.values = values
-        for hhmm in self.hhmm:
-            value = values.pop(0)
+    def set(self, values, day_text=''):      # values as 3 float, day_text e.g. weekday
+        self.values = values.copy()
+        self.day_text = day_text
+        self.show()
+        
+    # Anzeige der Zeile
+    def show(self):
+        UI.print(self.intro+self.day_text,self.y)
+        for i,hhmm in enumerate(self.hhmm):
+            value = self.values[i]  # decimal value
             sign = ' '
             if value < 0:
                 value = abs(value)
                 sign = '-'
             value = min(99.99,value)
             hh = int(value)
-            mm = (value-hh)*0.6
+            mm = int((value-hh)*60)
             hhmm_string = "%s%02d:%02d"%(sign,hh,mm)
             #hhmm_string = "%s%05.2f"%(sign,value)
             hhmm.set(hhmm_string)
+
         
 #%%    
 #####################################################
@@ -348,12 +361,13 @@ def main():
     UI.FBUF = LCD
     ssColor = LCD.white
     
+    SSEG.drawLine_fct = LCD.line
     SSEG.setSize(x_digit_separation=4, x_digit_size=10, y_digit_separation=4, y_digit_size=14)
-    dx=10 + 14*4  # distance between hh:mm objects
-    dy=18  # Line spacing
+    dx=22 #10 + 14*4  # distance between hh:mm objects
+    dy=18+2  # Line spacing
 
-    y0 = dy     # first line with digits
-    x0 = len('Tag WTag')*8+2*8    # x-pos first hh:mm  (AZ)
+    y0 = dy * 2     # first line with digits bottom position = 2x spacing
+    x0 = 28 #len('Tag WTag')*8+2*8    # x-pos first hh:mm  (AZ)
     
     # Output format is
     '''
@@ -371,10 +385,45 @@ def main():
     y = y0
     x = x0
 
-    UI.print("Tag WTag  AZ    +/-  Pause",y)
-    days = Show_Days(x0,y0,ssColor, dx)
+    UI.print("Tag WTag  AZ    +/-  Pause",0)
+    days = Show_Days(x0,y0, dx=dx, dy=dy, color=ssColor)
+
+
+    values = [1., 2., 3.]
+    
+    """
+    s0 = Show_PrintLine(x0, y0, LCD.white, dx, intro='Hi')
+    s0.set([1., 3., 5.], 'Mo')
+    s1 = Show_PrintLine(x0, y0+dy, LCD.white, dx, intro='Ho')
+    s1.set([10.1, 13.3, 15.5], 'Mo')
+    # s0.show()    
+    while(1):
+        values[0] += 0.1
+        values[1] += 0.01
+        time.sleep_ms(1000)
+        s0.set(values, 'xx')
+        s1.set(values, 'xx')
+        #s0.show()
+        print(values)
+    """
+    
+    """
+    h0=days.hhmm[0]
+    h0.show()
+
+    
+    values = [1., 2., 3.]
+    while(1):
+        values[0] += 0.1
+        time.sleep_ms(1000)
+        h0.set(values, 'xx')
+        # h0.show()
+        print(values)
+    """
+    
+    
     y = days.y_next
-    weeks = Show_Days(x,y0,ssColor, dx, lines=2, intro=['Woche','Wo-1'])
+    weeks = Show_Days(x,y0, dx=dx, dy=dy, color=ssColor, lines=2, intro=['Woche','Wo-1'])
     UI.print("Sollzeit: 35h",200)    
         
     
