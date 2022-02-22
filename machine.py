@@ -16,6 +16,11 @@ time.sleep_ms
 import time
 time.sleep_ms = lambda x:x
 
+
+class RTC():
+    def datetime(*args, **kwargs):
+        pass
+
 class SPI():
     
     def __init__(self,*args, **kwargs):

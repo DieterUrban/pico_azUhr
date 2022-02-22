@@ -12,31 +12,50 @@ def debug_drawLine_fct(x1,y1, x2,y2, color):
     print((x1,y1),(x2,y2),color)
 
 
-# create 00:00 object for e.g. hour:min display, optional with leading sign, length 2 (hh:mm) or 3 (hh:mm:ss)
+# create 00:00 object for e.g. hour:min display, optional with leading sign, length 2 (hh:mm) or if clockMode (hh:mm:ss)
 class HM():
-    def __init__(self, pos_x, pos_y, color=0, sign=True, n=2):
-        nhh = 3 if sign else 2
-        self.hh = DIGITS(nhh, pos_x, pos_y, color, fill_zeros=False, right_separator=':')
+    def __init__(self, pos_x, pos_y, color=0, sign=False, clockMode=False):
+        if clockMode:
+            
+        self.digits=3 if clockMode else 3
+        nhh = n+1 if sign else n
+        self.hh = DIGITS(nhh, pos_x, pos_y, color, fill_zeros=True, right_separator=':')
         pos_x_next = self.hh.x_next
-        self.mm = DIGITS(2, pos_x_next, pos_y, color, right_separator='')
-        pos_x_next = self.hh.x_next
-        if n == 3:
-            self.ss = DIGITS(2, pos_x_next, pos_y, color, right_separator='')
+        if n == 2:
+            self.mm = DIGITS(2, pos_x_next, pos_y, color, right_separator='')
+            pos_x_next = self.mm.x_next
+        else:
+            self.mm = DIGITS(2, pos_x_next, pos_y, color, right_separator=':')
+            pos_x_next = self.mm.x_next
+            self.ss = DIGITS(2, pos_x_next, pos_y, color, right_separator='')        
             pos_x_next = self.ss.x_next
         self.x_next = pos_x_next
         self.y_next = pos_y
 
     def set(self, value):    # value is already '01:22' type string
-        hh,mm = str(value).split(':')
-        self.hh.set(hh)
-        self.mm.set(mm)
+        hhmm = str(value).split(':')
+        self.setValues(hhmm)
+               
+    def setValues(self, values):    # values as list
+        self.hh.set(values[0])
+        self.mm.set(values[1])
+        if self.digits >= 3:
+            self.ss.set(values[2])
+        
+    def show(self):
+        self.hh.draw()
+        self.mm.draw()
+        if self.digits >= 3:
+            self.ss.draw()
 
     def clear(self):
         self.hh.clear()
         self.mm.clear()
+        if self.digits >= 3:
+            self.ss.clear()
 
 
-# multiple 7-seg objects to form n_digits size object
+# multiple 7-seg objects to form n_digits size object, e.g. 2 digit for hh 
 class DIGITS():
     def __init__(self, n_digits,       # number digits
                  pos_x, pos_y,         # bottom left x,y position as for text
@@ -48,9 +67,11 @@ class DIGITS():
         
         self.x_next = 0            # x position of next digits object with same spacing
         self.y_next = 0            # y position of next line for digits objects
-        self.sseg = []             # list of digits object
+        self.sseg = []             # list of digits objects
         self.value = ''            # string representing value , e.g. '01' or '35'
         self.right_separator = right_separator   # '.' or ':' to show '01:' or '35.'
+        self.fill_zeros = fill_zeros
+        self.left_aligned = left_aligned
         
         x=pos_x
         y=pos_y
@@ -63,7 +84,7 @@ class DIGITS():
         self.x_next = x
         self.y_next = y
 
-    
+    # set to value and show, string (or simple int). fill gaps  
     def set(self, value):
         self.value = str(value)
         if len(self.value) < len(self.sseg):

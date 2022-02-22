@@ -14,8 +14,7 @@ AZ-Model:
 """
 import time
 
-#EMBEDDED = False
-
+EMBEDDED = True
 WORK_TIME_PLAN = 35.0 # work time per hour plan
 
 #####################################################
@@ -186,7 +185,7 @@ class MY_Time():
     TSEC_OFFSET = 0 # offset from time.time to real time-date (used in non embedded environment)
     localTimeTuple = list(time.localtime(time.time()))
     tsec = 0
-    RTC = None   # to be set to machine.
+    RTC = None   # to be set to machine.RTC, will use RTC.datetime() Function which is machine.RTC.datetime in micropython
 
     @classmethod
     def getLocaltime(cls):
@@ -198,14 +197,21 @@ class MY_Time():
         time_wd = lt[6]
         return time_h, time_wd
 
+    # convert decimal hour.min_sec to 3x int 
+    # negative values result in negative hh, min and sec. are as positives (for use in -hh:mm:ss print)
     @classmethod
-    def changeTime(cls, time_h):   # decimal hour.min_sec
+    def convert2hms(cls, time_h): 
         # change time to target
         h = int(time_h)
-        time_h = (time_h-h)*60
+        time_h = abs((time_h-h)*60)
         m = int(time_h)
         time_h = (time_h-m)*60
         s = int(time_h)
+        return (h,m,s)
+
+    @classmethod
+    def changeTime(cls, time_h):   # decimal hour.min_sec
+        h,m,s = self.convert2hms
         MY_Time.localTimeTuple[3:6] = (h,m,s)        
         time_h, time_wd = MY_Time.setRTCtime()
         return time_h, time_wd
@@ -237,7 +243,7 @@ class MY_Time():
     @classmethod
     def setRTCtime(cls):
         # change rtc or adjust offset if no RTC (not embedded micropython)
-        if EMBEDDED:
+        if False and  EMBEDDED:
             MY_Time.RTC.datetime(tuple(MY_Time.localTimeTuple))
         else:
             userAdjusted_tsec = time.mktime(tuple(MY_Time.localTimeTuple))

@@ -12,6 +12,7 @@ framebuf
 @author: urban
 """
 
+DEBUG = False
 
 # (framebuf.FrameBuffer)
 
@@ -40,6 +41,7 @@ class FrameBuffer():
 
 
     def line(self, x1,y1,x2,y2,color, *args, **karargs):
+        if DEBUG:
             print((x1,y1),(x2,y2),color)
 
     def text(self, txt, x, y, color, *args, **karargs):
