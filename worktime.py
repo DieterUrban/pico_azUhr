@@ -15,7 +15,7 @@ AZ-Model:
 import time
 
 EMBEDDED = True
-WORK_TIME_PLAN = 35.0 # work time per hour plan
+WORK_TIME_PLAN = 35.0 # default work time per hour plan
 
 #####################################################
 
@@ -43,8 +43,16 @@ class WT_Day():
 
     def __init__(self, time_wd=0, 
                        work_time_plan=WORK_TIME_PLAN):
+        self.totalBalance = 0.
+        self.totalHours = 0.
+        self.totalWt = 0.
+        self.totalBreak = 0.
         WT_Day.set_Wt_Plan(work_time_plan)
         self.wd = time_wd    # week day    
+        self.start = -1
+        self.stop = -1
+        self.actualStart = -1
+        self.actualStop = -1
     
     def startWork(self, time_h=0.):
         """
@@ -104,6 +112,9 @@ class WT_Day():
         self.totalHours = self.stop - self.start
         self.totalBalance = self.totalWt - WT_Day.wtPlan
         return self.totalWt
+    
+    def getValues(self):
+        return (self.totalHours, self.totalBalance, self.totalBreak)
         
 #####################################################
 
@@ -113,28 +124,40 @@ class WT_Week():
         Zeitdaten einer Woche sowie Methoden dazu
     """
     
-    wtPlan = 0.
-    totalWt = 0.       # total working hours excluding breaks
-    totalBalance = 0.  # work time balance
-    totalBreak = 0.    # break time entered by user    
-    
+    wtPlan = WORK_TIME_PLAN   # default
+        
     def __init__(self, work_time_plan=WORK_TIME_PLAN):
         WT_Week.wtPlan = work_time_plan
-    
+        self.totalWt = 0.                 # week total, including today (partial today)
+        self.totalBalance = -WT_Week.wtPlan
+        self.totalBreak = 0.
+        self.totalWt_notToday = 0.        # sum up to last day
+        self.totalBalance_notToday = -(WT_Week.wtPlan*4/5)
+        self.totalBreak_notToday = 0.
+
+    # final  update for a day, to be executed after work end !
     def addDay(self, totalWt, totalBalance, totalBreak ):
         # add actual day working times
-        self.totalWt += totalWt
-        self.totalBalance += totalBalance
-        self.totalBreak += totalBreak
+        self.totalWt_notToday = self.totalWt
+        self.totalWt = self.totalWt_notToday + totalWt
+        self.totalBalance_notToday = self.totalBalance
+        self.totalBalance = self.totalBalance_notToday + totalBalance
+        self.totalBreak_notToday = self.totalBreak
+        self.totalBreak = self.totalBreak_notToday + totalBreak
     
     def checkWeekEnd(self):
         # check if week ended
-        # e.g. check if no keypress for > 12h
+        # e.g. check if no keypress for > 12h  or if > 1 day idle ...
         pass
     
-    def update(self):
-        # update week totals
-        pass
+    # running update for actual day
+    def update(self,totalWt, totalBalance, totalBreak):
+        self.totalWt = self.totalWt_notToday + totalWt
+        self.totalBalance = self.totalBalance_notToday + totalBalance
+        self.totalBreak = self.totalBreak_notToday + totalBreak
+
+    def getValues(self):
+        return (self.totalWt, self.totalBalance, self.totalBreak)
         
 
 #####################################################
@@ -211,7 +234,7 @@ class MY_Time():
 
     @classmethod
     def changeTime(cls, time_h):   # decimal hour.min_sec
-        h,m,s = self.convert2hms
+        h,m,s = MY_Time.convert2hms(time_h)
         MY_Time.localTimeTuple[3:6] = (h,m,s)        
         time_h, time_wd = MY_Time.setRTCtime()
         return time_h, time_wd
@@ -244,7 +267,7 @@ class MY_Time():
     def setRTCtime(cls):
         # change rtc or adjust offset if no RTC (not embedded micropython)
         if False and  EMBEDDED:
-            MY_Time.RTC.datetime(tuple(MY_Time.localTimeTuple))
+            MY_Time.RTC.datetime(tuple(MY_Time.localTimeTuple))    # does not work on picco ! ???
         else:
             userAdjusted_tsec = time.mktime(tuple(MY_Time.localTimeTuple))
             tsec = time.time()

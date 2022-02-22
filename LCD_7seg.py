@@ -16,9 +16,11 @@ def debug_drawLine_fct(x1,y1, x2,y2, color):
 class HM():
     def __init__(self, pos_x, pos_y, color=0, sign=False, clockMode=False):
         if clockMode:
-            
-        self.digits=3 if clockMode else 3
-        nhh = n+1 if sign else n
+            self.digits=3
+            nhh = 3 if sign else 2
+        else: 
+            self.digits = 2
+            nhh = 3 if sign else 2
         self.hh = DIGITS(nhh, pos_x, pos_y, color, fill_zeros=True, right_separator=':')
         pos_x_next = self.hh.x_next
         if n == 2:

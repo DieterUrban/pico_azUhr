@@ -127,7 +127,7 @@ class UI():
          }
     
     FBUF = None                       # set to lcd object (inherits framebuf.FrameBuffer)
-    
+        
     @classmethod
     def query(cls):
         global KEY_CHR
@@ -184,6 +184,7 @@ class UI():
     def print(cls, txt, y=0, x=0):
         if EMBEDDED:
             _txt=str(txt)
+            LCD.text(chr(219)*len(_txt),int(x),int(y),0x00)    # try to clear before using ascii block character     
             LCD.text(_txt,int(x),int(y),COLOR)    # x,y  from top left corner
             LCD.show()
         else:
@@ -207,6 +208,22 @@ class UI():
             UI.FBUF.line(p1[0], p1[1], p2[0], p2[1], color)
         else:
             debug_drawLine_fct(p1[0], p1[1], p2[0], p2[1], color)
+
+
+    # print one line with 3 tuples of (az,balance,break)
+    @classmethod    
+    def printLine(cls, values, x=0, y=0, intro_txt='', n_wday=0):
+
+        n_wday = n_wday%6
+        wday_txt = Hour_Lines.days[n_wday]
+                 
+        # create print line for all 3 time_h values 
+        # values = (11.2, -5.5, 0.25)
+        triples = [MY_Time.convert2hms(t_h) for t_h in values]
+        txt = tuple(["%2d:%02d"%trpl[:2] for trpl in triples])
+        txt = '  '.join(txt)
+         
+        UI.print(' '.join([intro_txt,wday_txt,txt]), y=y)
             
 
 class UI_():
@@ -239,7 +256,7 @@ class Hour_Lines():
     """
     header = ['AZ','+/-', 'Pause']                # header line text, not used yet
     intro = [' 0  ','-1  ','-2  ','-3  ','-4  ']  # default start text for lines
-    days = ['Mo','Di','Mi','Do','Fr']             # 2nd position start text for lines
+    days = ['Mo','Di','Mi','Do','Fr','Sa','So']             # 2nd position start text for lines
     
     def __init__(self, x0, y0, dx, dy, color, lines=5, intro=None):  # x0 = 1st digit start, dx = separation between hh:mm
         self.hhmm = []  # will get 5 hh:mm display objects
@@ -366,7 +383,7 @@ class Hour_Line():
     def print(self):
         pass
         
-
+#%%
 #####################################################
     
 def main():
@@ -384,13 +401,17 @@ def main():
     KEY_CHR = ''
     dayEndProcessed = False
 
+    n_wd = MY_Time.localTimeTuple[6]  # actual week day
+
     # setup display out
     # 
     
     LCD.lightBlue = (0x1f << 11) + (0x06 <<6) + 0x06    # 5 bit, order = brg
     ui_input = UI()
-    wt_day =       WT_Day(work_time_plan=WORK_TIME_PLAN)
-    wt_last_day =  WT_Day(work_time_plan=WORK_TIME_PLAN)
+    wt_day =  WT_Day(work_time_plan=WORK_TIME_PLAN, time_wd = n_wd)
+    wt_recent = []
+    for i in range(4):
+        wt_recent  +=  [WT_Day(work_time_plan=WORK_TIME_PLAN)]
     wt_week =      WT_Week(work_time_plan=WORK_TIME_PLAN)    
     wt_last_week = WT_Week(work_time_plan=WORK_TIME_PLAN)
     
@@ -439,9 +460,10 @@ def main():
         #print("days", days.hhmm)
         #print("weeks", weeks.hhmm)
         values = [1., 2., 3.]
- 
+        
     
-#%%    
+#%%   
+    update = False 
     while True:
         TIME_H, TIME_WD = MY_Time.getLocaltime()        
 
@@ -459,6 +481,8 @@ def main():
 
             elif key == UI.key['resetTotal']:           # 2nd key from top : reset accumulated total work time
                 TOTAL_WT = 0.
+                # no real function yet !
+                # would have to update wt_day  ?
 
             elif key == UI.key['setWd']:                # not implemented:  set week day
                 if EMBEDDED:
@@ -499,8 +523,9 @@ def main():
         # endif ui_query
         
         wt_day.update(TIME_H)        
-        wt_week.update()
+        wt_week.update(totalWt=wt_day.totalWt, totalBalance=wt_day.totalBalance, totalBreak=wt_day.totalBreak)
                     
+
         # LCD Output
         if EMBEDDED:
             _sec = time.mktime(tuple(MY_Time.localTimeTuple))
@@ -509,52 +534,52 @@ def main():
             if True:
                 #  direkte output per UI.print, keine SSEG
                 y=0
-                UI.print("Tag WD  AZ  +/-  Pause",0)
+                UI.print("    WD  AZ     +/-    Pause",0)
 
-                UI.print("Day WD AZ   AZ +/-   Pause",x)
-                y += dy                
-                UI.print(" 0 %1d %.2f  %.2f  %.2f"%(wt_day.wd, wt_day.totalHours, wt_day.totalBalance,wt_day.totalBreak),y)
-                UI.print(" 0 %1d %.2f  %.2f  %.2f"%(wt_last_day.wd, wt_last_day.totalHours, wt_last_day.totalBalance,wt_last_day.totalBreak),y+dy)
+                # day summaries
+                n_wday=wt_day.wd
+                y += dy    
+                UI.printLine(wt_day.getValues(),x=0, y=y, intro_txt=' 0 ', n_wday=n_wday)
+                y += dy    
+                for i in range(4):
+                    UI.printLine(wt_recent[i].getValues(),x=0, y=y, intro_txt='-1 ', n_wday=int(n_wday-1-i))
+                    y += dy    
+                # week summaries
+                UI.printLine(wt_week.getValues(),x=0, y=y+dy, intro_txt=' W0', n_wday=0)
+                UI.printLine(wt_last_week.getValues(),x=0, y=y+2*dy, intro_txt='W-1', n_wday=0)
+                y = y+4*dy
 
+                # clock and ....
+                hh,mm,ss = MY_Time.localTimeTuple[3:6]
+                hhmmss = "%02d:%02d:%02d"%(hh,mm,ss)
+                UI.print(hhmmss+'  version 0.1',y)
                 
             if False:
                 #UI.print("UI print test %d"%222,30)
                 # strftime not in micropython
                 #UI.print("%s  Hour %.4f  weekDay %d"%(time.strftime("%d.%m %H:%M:%S",_tt),TIME_H, TIME_WD),10)  # strftime not existing !
                 # UI.print("%s  Hour %.2f  weekDay %d"%('datum',TIME_H, TIME_WD),10)
-                #UI.print("Today Balance %.3f  Brakes %.3f  Hours %.4f"%(wt_day.totalBalance,wt_day.totalBreak, wt_day.totalHours),30)
-                #UI.print("yest  Balance %.3f  Brakes %.3f  Hours %.4f"%(wt_last_day.totalBalance,wt_last_day.totalBreak, wt_last_day.totalHours),50)
+                #UI.print("Today Balance %.3f  Brakes %.3f  Hours %.4f"%(wt_day.totalBalance,wt_day.totalBreak, wt_day.totalWt),30)
+                #UI.print("yest  Balance %.3f  Brakes %.3f  Hours %.4f"%(wt_last_day.totalBalance,wt_last_day.totalBreak, wt_last_day.totalWt),50)
                 #UI.print("Week  Balance %d"%0, 70)
                 #UI.print("Last Wk Balan %d "%0, 90)
                 pass
             ss = "%.3f"%TIME_H
             ss = ss[-2:]
-            # UI.print("xxxx %s"%ss,110)
-            #ss = "34"
-            # UI.printNumber(ss, digits=digits)
-            #print(_sec)
 
-            days.update(az=wt_day.totalHours, balance=wt_day.totalBalance, breaktime=wt_day.totalBreak)
-            weeks.update(az=wt_week.totalWt, balance=wt_week.totalBalance, breaktime=wt_week.totalBreak)
+            if int(_sec) % 10 == 1:
+                update = True
 
-            if int(_sec) % 5 == 0:
-                print("update clock")
-                if _SSEG:
-                    days.show()
-                    hh,mm,ss = MY_Time.localTimeTuple[3:6]
-                    hhmmss = "%2d:%2d:%2d"%(hh,mm,ss)
-                    clock.set(hhmmss)
-
-            if int(_sec) % 60 == 0:
-                if _SSEG:
-                    weeks.show(all=True)
-            
+            if int(_sec) % 10 == 0 and update:
+                LCD.fill(0x0000)
+                update = False
+                            
         else:
             _sec = time.mktime(tuple(MY_Time.localTimeTuple))
             _tt = time.localtime(_sec)                    
             print("%s  Hour %.4f  weekDay %d"%(time.strftime("%d.%m %H:%M:%S",_tt),TIME_H, TIME_WD))
-            print("    Today Balance %.4f  Brakes %.4f  Hours %.4f"%(wt_day.totalBalance,wt_day.totalBreak, wt_day.totalHours))
-            print("Yesterday Balance %.4f  Brakes %.4f  Hours %.4f"%(wt_last_day.totalBalance,wt_last_day.totalBreak, wt_last_day.totalHours))
+            print("    Today Balance %.4f  Brakes %.4f  Hours %.4f"%(wt_day.totalBalance,wt_day.totalBreak, wt_day.totalWt))
+            print("Yesterday Balance %.4f  Brakes %.4f  Hours %.4f"%(wt_last_day.totalBalance,wt_last_day.totalBreak, wt_last_day.totalWt))
             print("Week Balance",0)
             print("Last Week Balance",0)
         
@@ -564,43 +589,29 @@ def main():
 
         # end of day actions
         condition = (TIME_H >= 23.98)
-        condition = ((TIME_H *60*60) % 20 == 0)  # debugging
+        #condition = ((TIME_H *60*60) % 20 == 0)  # debugging
         if condition and dayEndProcessed == False:  # last minute
-            print("condition true")
+            print("condition day end", _sec)
             dayEndProcessed = True
-            if not EMBEDDED:
-                print("Day Ended")
             todays_wt = wt_day.endDay()
             Logging.write_day()
             wt_week.addDay(totalWt=wt_day.totalWt, totalBalance=wt_day.totalBalance, totalBreak=wt_day.totalBreak)
             Logging.write_week()
             Config.write()
-            wt_last_day = wt_day
+            # fifo wt_recent update
+            wt_recent.pop()
+            wt_recent = [wt_day] + wt_recent
             wt_day =  WT_Day(work_time_plan=WORK_TIME_PLAN)
             # roll over days and print
-            if _SSEG:
-                days.next_period()  
             if TIME_WD == 4:             
                 # Friday end of day
                 print("wd == 4")
-                if not EMBEDDED:
-                    print("Week Ended")
                 wt_last_week = wt_week
                 wt_week = WT_Week(work_time_plan=WORK_TIME_PLAN)
-                if _SSEG:                
-                    days.new_week()
-                    days.next_period()  
             if TIME_WD == 6:             
                 # Sunday end of day
                 if not EMBEDDED:
                     print("Week new")
-                if _SSEG:
-                    weeks.next_period()
-            # print week and line
-            if _SSEG:            
-                days.show(all=True)  
-                weeks.show(all=True)  
-                UI.print("%s  Hour %.2f  weekDay %d"%('datum',TIME_H, TIME_WD),10)
 
 
         if TIME_H < 0.1:
