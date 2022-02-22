@@ -51,7 +51,7 @@ if 'micropython' in str(sys.implementation):
     EMBEDDED = True
     
 _SSEG = True  # is 7seg- implementation used for output, or simple print to framebuffer
-#_SSEG = False    
+_SSEG = False    
 
 #%%
 import time
@@ -422,54 +422,24 @@ def main():
     x = x0
 
     #  setup UI output
-    UI.print("Tag WD  AZ  +/-  Pause",0)
-    days = Hour_Lines(x0,y0, dx=dx, dy=dy, color=ssColor)
-    days.setPlan(WORK_TIME_PLAN)
-
-    y = days.y_next
-    weeks = Hour_Lines(x,y, dx=dx, dy=dy, color=ssColor, lines=2, intro=['W0  ','W-1 '])
-    weeks.setPlan(WORK_TIME_PLAN*5)
+    if False:
+        UI.print("Tag WD  AZ  +/-  Pause",0)
+        days = Hour_Lines(x0,y0, dx=dx, dy=dy, color=ssColor)
+        days.setPlan(WORK_TIME_PLAN)
     
-    clock = HM(120, 239-dy, color=LCD.lightBlue, sign=False, n=3)
-
-    UI.print("Sollzeit: 35h",220)    
-
-    print("setup finished")
-    #print("days", days.hhmm)
-    #print("weeks", weeks.hhmm)
-    values = [1., 2., 3.]
+        y = days.y_next
+        weeks = Hour_Lines(x,y, dx=dx, dy=dy, color=ssColor, lines=2, intro=['W0  ','W-1 '])
+        weeks.setPlan(WORK_TIME_PLAN*5)
+        
+        clock = HM(120, 239-dy, color=LCD.lightBlue, sign=False, n=3)
     
-    """
-    s0 = Hour_Line(x0, y0, LCD.white, dx, intro='Hi')
-    s0.set([1., 3., 5.], 'Mo')
-    s0.show()
-    s1 = Hour_Line(x0, y0+dy, LCD.white, dx, intro='Ho')
-    s1.set([10.1, 13.3, 15.5], 'Mo')
-    s1.show()    
-    while(1):
-        values[0] += 0.1
-        values[1] += 0.01
-        time.sleep_ms(1000)
-        s0.set(values, 'xx')
-        s1.set(values, 'xx')
-        s0.show()
-        s1.show()
-        print(values)
-    """
+        UI.print("Sollzeit: 35h",220)    
     
-    """
-    h0=days.hhmm[0]
-    h0.show()
-
-    
-    values = [1., 2., 3.]
-    while(1):
-        values[0] += 0.1
-        time.sleep_ms(1000)
-        h0.set(values, 'xx')
-        h0.show()
-        print(values)
-    """  
+        print("setup finished")
+        #print("days", days.hhmm)
+        #print("weeks", weeks.hhmm)
+        values = [1., 2., 3.]
+ 
     
 #%%    
     while True:
@@ -536,8 +506,11 @@ def main():
             _sec = time.mktime(tuple(MY_Time.localTimeTuple))
             _tt = time.localtime(_sec)
             
-            if _SSEG:
+            if True:
+                #  direkte output per UI.print, keine SSEG
                 y=0
+                UI.print("Tag WD  AZ  +/-  Pause",0)
+
                 UI.print("Day WD AZ   AZ +/-   Pause",x)
                 y += dy                
                 UI.print(" 0 %1d %.2f  %.2f  %.2f"%(wt_day.wd, wt_day.totalHours, wt_day.totalBalance,wt_day.totalBreak),y)
