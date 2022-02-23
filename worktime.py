@@ -11,8 +11,21 @@ AZ-Model:
     0.5h Pause täglich abgezogen. Wenn AZ-pause --> darin berücksichtigen
     wenn AZ > 6h --> weitere 0.25h Abzug.   AZ-pausen ebenfalls berücksichtigen
 
+
+time handling routines in MY_Time
+adapts between micropython  and python differences
+(eg. RTC function and different time.localtime)
+
+micropython localtime 
+    (year, month, mday, hour, minute, second, weekday, yearday)
+RTC.datetime:
+    (year, month, day, weekday, hours, minutes, seconds, subseconds)
+RTC.init:
+(year, month, day[, hour[, minute[, second[, microsecond[, tzinfo]]]]])    
+
 """
 import time
+import json
 
 EMBEDDED = True
 WORK_TIME_PLAN = 35.0 # default work time per hour plan
@@ -24,35 +37,28 @@ class WT_Day():
     Provides:
         Zeitdaten eines Tages sowie Methoden rund um Zeiteinträge
     """
-    wd = 0           # week day (0 = Monday)
-    start = -1.      # todays hour decimal first start time
-    stop = -1.       # todays hour decimal final stop time
-    actualStart = -1.  # recent start time (e.g. after break)
-    actualStop = -1.   # recent stop time
     wtPlan = 0.        # work time per day plan
-    totalWtLastStop = 0.  # total working hours excluding breaks up to last stop
-    totalWt = 0.       # total working hours excluding breaks up to actual time
-    totalBalance = 0.  # work time balance up to actual time
-    totalHours = 0.    # total time stop - start
-    totalBreak = 0.    # break time entered by user  (actual break will not be included unless work started again or day ended)
-    working = False    # work or break/endOfWork status
     
     @classmethod
     def set_Wt_Plan(cls, work_time_plan):
-        cls.wtPlan = round(work_time_plan/5.,2)
+        WT_Day.wtPlan = round(work_time_plan/5.,2)
 
-    def __init__(self, time_wd=0, 
-                       work_time_plan=WORK_TIME_PLAN):
-        self.totalBalance = 0.
-        self.totalHours = 0.
-        self.totalWt = 0.
-        self.totalBreak = 0.
+    def __init__(self, 
+                       work_time_plan=WORK_TIME_PLAN,
+                       time_wd=0
+                       ):
+        self.wd = time_wd          # week day (0 = Monday)  
+        self.start = -1            # todays hour.decimal first start time
+        self.stop = -1             # todays hour.decimal final stop time
+        self.actualStart = -1      # last recent start time (e.g. after break)
+        self.actualStop = -1       # last recent stop time
         WT_Day.set_Wt_Plan(work_time_plan)
-        self.wd = time_wd    # week day    
-        self.start = -1
-        self.stop = -1
-        self.actualStart = -1
-        self.actualStop = -1
+        self.totalWtLastStop = 0.  # total working hours excluding breaks up to last stop
+        self.totalWt = 0.          # total working hours excluding breaks up to actual time
+        self.totalBalance = 0.     # work time balance up to actual time
+        self.totalHours = 0.       # total time stop - start
+        self.totalBreak = 0.       # break time entered by user  (actual break will not be included unless work started again or day ended)
+        self.working = False       # work or break/endOfWork status
     
     def startWork(self, time_h=0.):
         """
@@ -161,27 +167,61 @@ class WT_Week():
         
 
 #####################################################
-    
+
 class Config():
     """
     Provides:
         Config daten wie Soll AZ und Routinen zum lesen / schreiben
     """
-    weekday = 0          # Montag ~ 0
-    date = None          # date format tbd
-    workTimePlan = 35.0  # planned working time per week
-    breakTimeLunch = 0.5 # lunch break
-    breakTimeBf = 0.25   # breakfast break
-    workTimeBreak = 6.   # treshold work time to apply breakTimeBf
+    config = {
+        # values to support restart after power break
+        'date': (2020,1,1),          # actual date tuple (year,month,date)
+        'time':    0.0,           # actual time in decimal format  23.999
+        'hours_today':    0.,     # balance time actual day
+        # config values, not changed by program
+        'workTimePlan':   39.0,   # planned working time per week
+        'breakTimeLunch': 0.5,    # lunch break
+        'breakTimeBf':    0.25,   # breakfast break
+        'workTimeBreak':  6.      # treshold work time to apply breakTimeBf
+    }
     configFile = 'config.json'
     
     @classmethod
     def read(cls):
-        print(cls.configFile)
-    
+        file = Config.configFile
+        try:
+            with open(file, 'r') as f:
+                Config.config = json.loads(f.readall())
+        except:
+            # create new file if not exists
+            Config.write()
+        return Config.config
+                
     @classmethod
     def write(cls):
-        pass
+        file = Config.configFile
+        with open(file, 'w') as f:
+            f.write(json.dumps(Config.config))
+            f.close()
+            print("config written")
+            return True
+        return False
+    
+    @classmethod
+    def setToday(cls, time=None, hours_today=None, date=None):
+        if time:
+            Config.config['time'] = time
+        if hours_today:
+            Config.config['hours_today'] = hours_today
+        if date:
+            Config.config['date'] = date
+        return Config.config    
+
+
+#import json
+#f.write(ujson.dumps(config))
+#c = ujson.loads(f.readall())
+ 
     
 #####################################################
 class Logging():
@@ -189,15 +229,31 @@ class Logging():
     Provides:
         Loggin of working time data per day (and per week)
     """
-    
+        
     @classmethod
-    def write_day(cls):
-        pass
+    def write_day(cls, time, values):    # time = timeTuple, list of values
+        file = 'logDay.csv'
+        time_txt = '.'.join([str(x) for x in time[2:0:-1]])+'.'
+        line = ', '.join([str(x) for x in values]) + '\n'
+        with open(file, 'a') as f:
+            f.write(time_txt+', '+line)
+            f.close()
+            return True
+        return False
+        
 
     @classmethod
-    def write_week(cls):
-        pass
+    def write_week(cls, time, values):
+        file = 'logWeek.csv'
+        time_txt = '.'.join([str(x) for x in time[2:0:-1]])+'.' 
+        line = ', '.join([str(x) for x in values]) + '\n'
+        with open(file, 'a') as f:
+            f.write(time_txt+', '+line)
+            f.close()
+            return True
+        return False
     
+
 #####################################################
 class MY_Time():
     """
@@ -232,13 +288,15 @@ class MY_Time():
         s = int(time_h)
         return (h,m,s)
 
+    # set localTime to new value from decimat time  
     @classmethod
-    def changeTime(cls, time_h):   # decimal hour.min_sec
+    def setTime(cls, time_h):   # decimal hour.min_sec
         h,m,s = MY_Time.convert2hms(time_h)
         MY_Time.localTimeTuple[3:6] = (h,m,s)        
         time_h, time_wd = MY_Time.setRTCtime()
         return time_h, time_wd
 
+    # set localTime to new full hour
     @classmethod
     def setH0(cls,hour):
         # reset to hour start
@@ -248,7 +306,7 @@ class MY_Time():
         time_h, time_wd = MY_Time.setRTCtime()
         return time_h
 
-
+    # set localTime hour without changing minutes / seconds
     @classmethod
     def setH(cls, hour):
         # set hour, leave min:sec unchanged
@@ -256,23 +314,46 @@ class MY_Time():
         time_h, time_wd = MY_Time.setRTCtime()
         return time_h
 
+    # set date from tuple year,month,day  
     @classmethod
-    def setWd(cls, wd):
-        # set weekday
-        MY_Time.localTimeTuple[6] = int(wd)
+    def setDate(cls, date_tuple):
+        print("setDate", date_tuple)
+        MY_Time.localTimeTuple[0:3] = [int(x) for x in date_tuple]
+        time_h, time_wd = MY_Time.setRTCtime()
+        return time_wd
+
+    # set weekday by adjusting date. works for small adjustments +/- 1
+    @classmethod
+    def changeDate(cls, delta=0):    # delta days
+        # set weekday by adjusting date
+        month, day = MY_Time.localTimeTuple[1:3]
+        day += delta
+        if day < 0:
+            day = 30
+            month -= 1
+        if day > 30:
+            day = 1
+            month += 1
+        MY_Time.localTimeTuple[1] = month
+        MY_Time.localTimeTuple[2] = day        
         time_h, time_wd = MY_Time.setRTCtime()
         return time_wd
 
     @classmethod
     def setRTCtime(cls):
         # change rtc or adjust offset if no RTC (not embedded micropython)
-        if False and  EMBEDDED:
-            MY_Time.RTC.datetime(tuple(MY_Time.localTimeTuple))    # does not work on picco ! ???
+        if EMBEDDED:
+            #  localtime is    (year, month, mday, hour, minute, second, weekday, yearday)
+            #  RTC.init uses   (year, month, day[, hour[, minute[, second[, microsecond[, tzinfo]]]]])  but not availabe with pico !
+            #  RTC.datetime    (year, month, day, weekday, hours, minutes, seconds, subseconds)
+            tt = list(MY_Time.localTimeTuple)
+            MY_Time.RTC.datetime(tt[0:3] + tt[6:7] + tt[3:6] + [0])
         else:
             userAdjusted_tsec = time.mktime(tuple(MY_Time.localTimeTuple))
             tsec = time.time()
             MY_Time.TSEC_OFFSET = userAdjusted_tsec - tsec
         time_h, time_wd = MY_Time.getLocaltime()
+        print("setRTCTime", time_wd, time_h)
         return time_h, time_wd
 
 #####################################################

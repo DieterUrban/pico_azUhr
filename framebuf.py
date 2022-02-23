@@ -45,7 +45,8 @@ class FrameBuffer():
             print((x1,y1),(x2,y2),color)
 
     def text(self, txt, x, y, color, *args, **karargs):
-        print(txt)
+        if ord(txt[0])<200:   # avoid to print non ASCII (for screen blanking)
+            print(txt)
 
     def show(self, *args, **karargs):
         pass

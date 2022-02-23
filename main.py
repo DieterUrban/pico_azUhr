@@ -11,21 +11,20 @@ Pico ZeitUhr
 Erfasse Arbeitszeit (AZ) und Zeige Werte als Hilfe zur Zeitbuchungskorrektur
 Zeige AZ- Soll
     aktuelle Tag
-    letzte Tag
+    letzte Tag  (letzte 5 Tage)
     aktuelle Woche (ohne heute)
     letzte Woche
-    Summe alles  (ohne heute)
          
 UI:
-    Setze Wochentag  (Mo..Fr)
-    Setze Stunde  (0..24)
-    Setzte Minuten/Sek auf 0
-    Setzte Sollzeit (h, 1 Dezimalstelle, default = 35.0h)
+    Setze Wochentag  (Mo..Fr) über inc - dec
+    Setze Stunde  (0..24)  über inc-dec
+    Setzte Minuten/Sek auf 0  (mit Setze Stunde)
+    Setzte Sollzeit (h, 1 Dezimalstelle, default = 35.0h)   (über config)
     Lösche AZ Summe  (bis Vortag, aktuelle Tag bleibt)
-    start / stop
+    start / stop (pause) / Tagesende
 
 Daten:
-    Speichere settings in config.csv
+    Speichere settings in config.json
     Speichere Tages und Wochendaten in AZtage.csv (Datum, WoTag, Start, Stop, Pausenzeit, Salden. Fortlaufend)
         bzw. AZwoche.csv (kw_xxx, Datum Start, AZ, Pause, Saldo)
 
@@ -41,7 +40,6 @@ Screen layout:
 
 """
 
-#%%
 #####################################################
 import sys, os
 
@@ -61,12 +59,13 @@ from worktime import WT_Day, WT_Week, Config, Logging, MY_Time
 import machine
 import framebuf
 from Pico_LCD1_3 import LCD_1inch3
-from LCD1_3_setup import *
+from LCD1_3_setup import *                 # provides LCD, KEYxxx
 
 if EMBEDDED:
     pass
 
 else:
+    import worktime
     worktime.EMBEDDED = False
 #    import keyboard    # requires root for operation !!!!!
 #    def getchr():
@@ -100,12 +99,20 @@ else:
 #        listener.join()
 
 #####################################################
+# global variables
+VERSION = 0.2
 
 TIME_H = 0.     # actual hour (decimal)
 TIME_WD = 0     # actual week day (0 = Monday)
 TOTAL_WT = 0.   # accumulated work time - planned worktime
 WORK_TIME_PLAN = 35.0 # work time per hour plan
 COLOR = LCD.red if EMBEDDED else 0  # default when starting day: pause condition
+WDAYS = ['Mo','Di','Mi','Do','Fr','Sa','So']    # shortcuts used for screen output
+CONFIG = None   # config object
+layout = None
+
+# for debug: micropyton can access global variables after beeing stopped
+wt_day = None; wt_recent=[]; wt_week=None; wt_last_week=None
 
 #%%    
 #####################################################
@@ -116,23 +123,25 @@ class UI():
         UI input events sowie Eingabe support
     """
 
-    key={'start':'a',                 # mapping internal function to received key press 'ids'
-         'stop':'o',
-         'setH':'h',
-         'setH0':'0',
-         'setWd':'w',
-         'setPlan':'p',
-         'resetTotal':'r',
-         'setEndDay':'e'
+    key={'start':     'a',                 # mapping internal function to received key press 'ids' if not in embedded mode
+         'stop':      'y',                 # ids are 1.3" LCD keys  A,B,X,Y and joystick up,down,left,right,ctrl
+         'incH':      'u',
+         'decH':      'd',
+         'incWd':     'r',
+         'decWd':     'l',
+         'resetTotal':'b',
+         'setEndDay': 'x',
+         'store':     'c'
          }
     
     FBUF = None                       # set to lcd object (inherits framebuf.FrameBuffer)
+    lastKey = ''
         
     @classmethod
     def query(cls):
         global KEY_CHR
         if EMBEDDED:
-            for key in [KEYA,KEYB,KEYX, KEYY,CTRL]:
+            for key in [KEYA,KEYB,KEYX,KEYY, CTRL,UP,DOWN,LEFT,RIGHT]:
                 if key.value()==0:
                     return True
             return False
@@ -147,38 +156,123 @@ class UI():
     def getKey(cls):
         if EMBEDDED:
             if KEYA.value()==0:           
-                return UI.key['start']    # top key
+                return UI.key['start']       # top key
             if KEYY.value()==0:            
-                return UI.key['stop']     # bottom key
+                return UI.key['stop']        # bottom key
             if KEYB.value()==0:
                 return UI.key['resetTotal']  # 2nd from top
             if KEYX.value()==0:
                 return UI.key['setEndDay']   # 3rd from top
-            if CTRL.value()==0:              
-                return UI.key['setH']        # joystick press: setH to 12h
+            if CTRL.value()==0:           
+                return UI.key['store']       # enter: store status to config
+            if UP.value()==0:              
+                return UI.key['incH']        # joystick up: inc hour (mm:ss == 0)
+            if DOWN.value()==0:              
+                return UI.key['decH']        # joystick down: dec hour (mm:ss == 0)
+            if RIGHT.value()==0:              
+                return UI.key['incWd']       # joystick right: inc week day
+            if LEFT.value()==0:              
+                return UI.key['decWd']       # joystick left: dec week day
         else:
-            key = input("enter input key start|stop|resetTotal|setWd|setH|setH0|setEndDay : ")
+            key = input("enter input key start|stop|incH|decH|incWd|decWd|resetTotal|setEndDay : ")
             # return key
             if not key in UI.key:
                 return ''
             return UI.key[key]
-        
+
+
     @classmethod
-    def getMove(cls):
-        if EMBEDDED:
-            if LEFT.value()==0:           
-                return UI.key['start']       # next field
-            if RIGHT.value()==0:            
-                return UI.key['stop']        # prev field
-            if UP.value()==0:
-                return UI.key['resetTotal']  # increment
-            if DOWN.value()==0:
-                return UI.key['setEndDay']   # decrement
-            if CTRL.value()==0:           
-                return UI.key['setH']        # enter
-            return None
-        else:
-            return None
+    def action(cls, *args):  #, wt_day, wt_recent, wt_week, wt_last_week):
+        global COLOR, TIME_H, TIME_WD, TOTAL_WT, CONFIG, layout
+        global  wt_day, wt_recent, wt_week, wt_last_week
+        if UI.query():
+            KEY_CHR = ''
+            key = UI.getKey()
+            if key:
+                print(key)
+
+            # special combined presses for debugging
+            if key == UI.key['resetTotal'] and UI.lastKey == UI.key['decH']: # down + 2nd key --> enter micropython console mode by forcing crah
+                print(execution_ended)
+            if key == UI.key['setEndDay'] and UI.lastKey == UI.key['decH']: # down + 3rd key --> simulate day end
+                print("set to 23:59:30")
+                wt_day.stopWork(TIME_H)
+                wt_day.endDay()
+                new_time = 23.9917
+                TIME_H, TIME_WD = MY_Time.setTime(new_time)
+                key = ''
+
+            if key == UI.key['start']:                  # top key:    start work
+                wt_day.startWork(TIME_H)
+                COLOR = LCD.green
+                balance = wt_day.totalBalance
+                CONFIG.setToday(hours_today= balance)
+                #CONFIG.write()
+
+            elif key == UI.key['stop']:                 # bottom key:  pause
+                wt_day.stopWork(TIME_H)
+                COLOR = LCD.red # LCD.orange
+                balance = wt_day.totalBalance
+                CONFIG.setToday(hours_today= balance)
+                #CONFIG.write()
+
+            elif key == UI.key['resetTotal']:           # 2nd key from top : reset today
+                TOTAL_WT = 0.
+                # reset current day
+                wt_day =  WT_Day(work_time_plan=WORK_TIME_PLAN)
+
+            elif key == UI.key['incWd']:                # joystick right:   increment week day
+                TIME_WD = MY_Time.changeDate(+1)
+                wt_day.wd = TIME_WD
+                date = MY_Time.localTimeTuple[0:3]
+                CONFIG.setToday(date= date)
+                #CONFIG.write()
+
+            elif key == UI.key['decWd']:                # joystick left:    decrement week day
+                TIME_WD = MY_Time.changeDate(-1)
+                wt_day.wd = TIME_WD
+                date = MY_Time.localTimeTuple[0:3]
+                CONFIG.setToday(date= date)
+                #CONFIG.write()
+
+            elif key == UI.key['incH']:                 # joystick up:      increment hour, mm:ss == 0
+                new_time = round(TIME_H + 0.5)
+                TIME_H = MY_Time.setH0(new_time)
+                CONFIG.setToday(time= TIME_H)
+                #CONFIG.write()
+
+            elif key == UI.key['decH']:                 # joystick down:    decrement hour, mm:ss == 0
+                new_time = round(TIME_H - 1.)
+                TIME_H = MY_Time.setH0(new_time)
+                CONFIG.setToday(time= TIME_H)
+                #CONFIG.write()
+
+            elif key == UI.key['store']:                # joystick press:    store actual to config
+                balance = wt_day.totalBalance
+                CONFIG.setToday(hours_today= balance)
+                date = MY_Time.localTimeTuple[0:3]
+                CONFIG.setToday(time= TIME_H, date= date)
+                CONFIG.write()
+                # Logging.write_day(MY_Time.localTimeTuple, [wt_day.totalWt, wt_day.totalBalance, wt_day.totalHours, wt_day.start])            
+                
+            elif key == UI.key['setEndDay']:            # 3rd from top:   end worktime,stop pause counting
+                #time_h = 23.988
+                #TIME_H, TIME_WD = MY_Time.setTime(time_h)
+                wt_day.stopWork(TIME_H)
+                wt_day.endDay()
+                COLOR = LCD.white
+
+                balance = wt_day.totalBalance
+                CONFIG.setToday(hours_today= balance)
+                date = MY_Time.localTimeTuple[0:3]
+                CONFIG.setToday(time= TIME_H, date= date)
+                CONFIG.write()
+
+
+            screen_update(wt_day, wt_recent, wt_week, wt_last_week, layout)
+            UI.lastKey = key
+
+
         
     @classmethod
     def print(cls, txt, y=0, x=0):
@@ -214,8 +308,8 @@ class UI():
     @classmethod    
     def printLine(cls, values, x=0, y=0, intro_txt='', n_wday=0):
 
-        n_wday = n_wday%6
-        wday_txt = Hour_Lines.days[n_wday]
+        n_wday = n_wday%7
+        wday_txt = WDAYS[n_wday]
                  
         # create print line for all 3 time_h values 
         # values = (11.2, -5.5, 0.25)
@@ -234,181 +328,98 @@ class UI_():
         LCD.text(_txt,int(x),int(y),COLOR)    # x,y  from top left corner
         LCD.show()
 
-#%%        
-#####################################################
-# Generate display Output format
-"""
-Tag WTag  AZ     Pause  +/-
-0   Fr    00:00  00:00  00:00
--1  Do    
--2  Mi
--3  Di
--4  Mo
-Woche     00:00  00:00  00:00
-W-1       00:00  00:00  00:00
-Sollzeit: 35h
-"""
+#########################################################
 
-class Hour_Lines():
-    """
-    Provides:
-        Anzeige von 5 Zeilen jeweils: AZ, +/- und Pause
-    """
-    header = ['AZ','+/-', 'Pause']                # header line text, not used yet
-    intro = [' 0  ','-1  ','-2  ','-3  ','-4  ']  # default start text for lines
-    days = ['Mo','Di','Mi','Do','Fr','Sa','So']             # 2nd position start text for lines
+def screen_update(wt_day, wt_recent, wt_week, wt_last_week, layout):
+    global EMBEDDED
     
-    def __init__(self, x0, y0, dx, dy, color, lines=5, intro=None):  # x0 = 1st digit start, dx = separation between hh:mm
-        self.hhmm = []  # will get 5 hh:mm display objects
-        self.actual = 0  # pointer to actual day in days, 0 is monday
-        self.setPlan(39./5)
-        intro = intro or Hour_Lines.intro.copy()
-        
-        for i in range(lines):
-            line_hhmm = Hour_Line(x0, y0, color, dx, intro[i])
-            self.hhmm += [line_hhmm]
-            y0  += dy  # next line y value
-        self.y_next = y0
-        self.values = self.hhmm[0].values
-     
-    # set defaults as worktime plan ...
-    def setPlan(self, hourPlan):
-        self.hourPlan = hourPlan
+    if not EMBEDDED:
+        _screen_update_nonEmbedded(wt_day, wt_recent, wt_week, wt_last_week, layout)
+        return
     
-    # update todays values and print/show-update first line
-    def update(self, az,balance,breaktime):
-        # print("update")
-        self.values = [az, balance, breaktime]
-        wday_string = Hour_Lines.days[self.actual]
-        # print(self.hhmm)
-        self.hhmm[0].set(self.values, wday_string)
-        
-    # show first or all lines
-    def show(self, all=False):
-        # print("show all=", all)
-        #if type(self.hhmm[0]) == list:
-        #    print("show errror:", self.hhmm)
-        if all:
-            for hhmm in self.hhmm:
-                hhmm.show()
-        else:
-            self.hhmm[0].show()
-    
-    # roll over to next day, end actual day, print all lines
-    def next_period(self):
-        #print("next_period")
-        n_wday = (self.actual + len(self.hhmm)-1)%6  # for 5 days: actual for hhmm[0], +4 for hhmm[4]
-        # shift up: copy from line n to n+1 starting at end
-        for i in range(len(self.hhmm)-2,-1,-1):  # 3,2,1,0  for 5 lines
-            # copy actual day to next
-            # print(i)
-            values = self.hhmm[i].values
-            # wday_text = Hour_Lines.intro[n_wday]
-            wday_text = Hour_Lines.days[n_wday]            
-            self.hhmm[i+1].set(values,wday_text)
-            n_wday = n_wday -1 if n_wday > 0 else 6
-            
-        self.actual = (self.actual+1)%6
-        wday_text = Hour_Lines.days[self.actual]            
-        self.hhmm[0].set([0., -self.hourPlan, 0.], wday_text)         # new day az, +/- , break
-    
-    # roll over to monday, new week
-    def new_week(self):
-        self.actual = 0  # set to monday
-        
+    dy = layout['dy']
+    y0 = layout['y0']
+    x0 = layout['x0']
 
-class Hour_Line():
-    """
-    Provides:
-        Objekt und Anzeige von einer Zeile jeweils: AZ, +/- und Pause als hh.mm
-    """
-    
-    def __init__(self, x0, y0, color, dx, intro=''):
-        self.hhmm = []  # will get 3 hh:mm display objects
-        self.values = [0.,0.,0.]  # 3 float values for AZ, +/- and pause
-        self.intro = intro
-        self.day_text = ''
-        self.y = y0
-        
-        x = x0
-        line_hhmm=[]
-        for i in range(3):
-            # 3 hh:mm per line, 2nd is banlance with sign
-            sign = False if i != 2 else True
-            hhmm = HM(x, self.y, color=color, sign=sign)
-            line_hhmm += [hhmm]
-            x = hhmm.x_next + dx
-        
-        self.x_next = x
-        self.hhmm = line_hhmm
+    # LCD Output        
+    if True:
+        #  direkte output per UI.print, keine SSEG
+        UI.print("    WD  AZ     +/-    Pause",0)
 
-    
-    # Werte setzen
-    def set(self, values, day_text=''):      # values as 3 float, day_text e.g. weekday
-        self.values = values.copy()
-        self.day_text = day_text
-        self.show()
+        # day summaries
+        n_wday=wt_day.wd
+        y = y0 + dy    
+        UI.printLine(wt_day.getValues(),x=x0, y=y, intro_txt=' 0 ', n_wday=n_wday)
+        y += dy    
+        for i in range(4):
+            UI.printLine(wt_recent[i].getValues(),x=x0, y=y, intro_txt=str(-i-1)+' ', n_wday=int(n_wday-1-i))
+            y += dy    
+        # week summaries
+        UI.printLine(wt_week.getValues(),x=x0, y=y+dy, intro_txt=' W0', n_wday=0)
+        UI.printLine(wt_last_week.getValues(),x=x0, y=y+2*dy, intro_txt='W-1', n_wday=0)
+        y = y+4*dy
 
+        # clock and ....
+        hh,mm,ss = MY_Time.localTimeTuple[3:6]
+        hhmmss = "%02d:%02d:%02d"%(hh,mm,ss)
+        UI.print(hhmmss+" AZ_Plan=%1.1f  v%1.1f"%(wt_day.wtPlan,VERSION),y)
         
-    # Anzeige der Zeile und update von values in hh:mm objekt mithilfe von SSEG output
-    def show(self):
-        UI.print(self.intro+self.day_text,self.y)
-        if True: # use SSEG drawing for output 
-            for i,hhmm in enumerate(self.hhmm):
-                value = self.values[i]  # decimal value
-                sign = ' '
-                if value < 0:
-                    value = abs(value)
-                    sign = '-'
-                value = min(99.99,value)
-                hh = int(value)
-                mm = int((value-hh)*60)
-                hhmm_string = "%s%02d:%02d"%(sign,hh,mm)
-                #hhmm_string = "%s%05.2f"%(sign,value)
-                if False: # use SSEG drawing for output :
-                    hhmm.set(hhmm_string)
-                else:
-                    x = hhmm.hh.sseg[0].pos_x
-                    UI.print(hhmm_string, self.y, x)
-        else:  # use UI.print for output
-            x = len(self.intro+self.day_text) + 4
-            x = self.hhmm[0].hhmm[0].hh.sseg[0].pos_x
-            # create print line for all 3 time_h values 
-            az,balance,brk = (11.2, -5.5, 0.25)
-            triples = [MY_Time.convert2hms(t_h) for t_h in (az,balance,brk)]
-            txt = tuple(["%2d:%2d"%trpl[:2] for trpl in triples])
-            UI.print(txt, self.y, x)
+    if False:
+        #UI.print("UI print test %d"%222,30)
+        # strftime not in micropython
+        #UI.print("%s  Hour %.4f  weekDay %d"%(time.strftime("%d.%m %H:%M:%S",_tt),TIME_H, TIME_WD),10)  # strftime not existing !
+        # UI.print("%s  Hour %.2f  weekDay %d"%('datum',TIME_H, TIME_WD),10)
+        #UI.print("Today Balance %.3f  Brakes %.3f  Hours %.4f"%(wt_day.totalBalance,wt_day.totalBreak, wt_day.totalWt),30)
+        #UI.print("yest  Balance %.3f  Brakes %.3f  Hours %.4f"%(wt_last_day.totalBalance,wt_last_day.totalBreak, wt_last_day.totalWt),50)
+        #UI.print("Week  Balance %d"%0, 70)
+        #UI.print("Last Wk Balan %d "%0, 90)
 
-    # use UI.print to generate output
-    def print(self):
-        pass
-        
+        ss = "%.3f"%TIME_H
+        ss = ss[-2:]
+
+                        
+def _screen_update_nonEmbedded(wt_day, wt_recent, wt_week, wt_last_week, layout):
+    _sec = time.mktime(tuple(MY_Time.localTimeTuple))
+    _tt = time.localtime(_sec)                    
+    print("%s  Hour %.4f  weekDay %d"%(time.strftime("%d.%m %H:%M:%S",_tt),TIME_H, TIME_WD))
+    print("    Today Balance %.4f  Brakes %.4f  Hours %.4f"%(wt_day.totalBalance,wt_day.totalBreak, wt_day.totalWt))
+    print("Yesterday Balance %.4f  Brakes %.4f  Hours %.4f"%(wt_last_day.totalBalance,wt_last_day.totalBreak, wt_last_day.totalWt))
+    print("Week Balance",0)
+    print("Last Week Balance",0)
+
+
 #%%
 #####################################################
     
 def main():
-    global TIME_H, TIME_WD, TOTAL_WT, WORK_TIME_PLAN, KEY_CHR, COLOR
+    global TIME_H, TIME_WD, TOTAL_WT, WORK_TIME_PLAN, KEY_CHR, COLOR, CONFIG, layout
+    global wt_day, wt_recent, wt_week, wt_last_week
     print("start main")
+
+#%%    
+
+    MY_Time.RTC = machine.RTC()
     
-    if EMBEDDED:
-        MY_Time.RTC = machine.RTC()
+    CONFIG = Config()  # only class methods, no real instances ...
+    config = CONFIG.read()
+    print(config)
     
-    config = Config()
-#%%
-    Config.read()
-    
-    WORK_TIME_PLAN = Config.workTimePlan
+    WORK_TIME_PLAN = config['workTimePlan']
     KEY_CHR = ''
     dayEndProcessed = False
 
-    n_wd = MY_Time.localTimeTuple[6]  # actual week day
+    # n_wd = MY_Time.localTimeTuple[6]  # actual week day
+    date = config['date']
+    TIME_WD = MY_Time.setDate(date)    
+    TIME_H = config['time']
+    TIME_H, TIME_WD = MY_Time.setTime(TIME_H)
+    print(TIME_H)
 
     # setup display out
     # 
     
-    LCD.lightBlue = (0x1f << 11) + (0x06 <<6) + 0x06    # 5 bit, order = brg
     ui_input = UI()
-    wt_day =  WT_Day(work_time_plan=WORK_TIME_PLAN, time_wd = n_wd)
+    wt_day =  WT_Day(work_time_plan=WORK_TIME_PLAN, time_wd = TIME_WD)
     wt_recent = []
     for i in range(4):
         wt_recent  +=  [WT_Day(work_time_plan=WORK_TIME_PLAN)]
@@ -417,33 +428,37 @@ def main():
     
     UI.FBUF = LCD
     ssColor = LCD.white
-    SSEG.drawLine_fct = LCD.line
-    SSEG.setSize(x_digit_separation=5, x_digit_size=8, y_digit_separation=4, y_digit_size=14)
+    #SSEG.drawLine_fct = LCD.line
+    #SSEG.setSize(x_digit_separation=5, x_digit_size=8, y_digit_separation=4, y_digit_size=14)
     
     dx=22 #10 + 14*4  # distance between hh:mm objects
     dy=18+2  # Line spacing
-
     y0 = dy * 2     # first line with digits bottom position = 2x spacing
     x0 = 28 #len('Tag WTag')*8+2*8    # x-pos first hh:mm  (AZ)
     
-    # Output format is
-    '''
-    Tag WTag  AZ     Pause  +/-
-    0   Fr    00:00  00:00  00:00
-    -1  Do    
-    -2  Mi
-    -3  Di
-    -4  Mo
-    Woche     00:00  00:00  00:00
-    W-1       00:00  00:00  00:00
-    Sollzeit: 35h
-    '''
-    
-    y = y0
-    x = x0
+    layout = {  'dx':dx,
+                'x0':0,
+                'y0':0,
+                'dy':dy
+        }
+        
 
-    #  setup UI output
+    #  setup LCD UI output
     if False:
+        # Output format is
+        '''
+        Tag WTag  AZ     Pause  +/-
+        0   Fr    00:00  00:00  00:00
+        -1  Do    
+        -2  Mi
+        -3  Di
+        -4  Mo
+        Woche     00:00  00:00  00:00
+        W-1       00:00  00:00  00:00
+        Sollzeit: 35h
+        '''
+        y = y0
+        x = x0        
         UI.print("Tag WD  AZ  +/-  Pause",0)
         days = Hour_Lines(x0,y0, dx=dx, dy=dy, color=ssColor)
         days.setPlan(WORK_TIME_PLAN)
@@ -461,128 +476,36 @@ def main():
         #print("weeks", weeks.hhmm)
         values = [1., 2., 3.]
         
-    
-#%%   
-    update = False 
+    ################################################
+    update = True
+    processDayEnd = True
+
+#%%
     while True:
         TIME_H, TIME_WD = MY_Time.getLocaltime()        
-
-        if UI.query():
-            KEY_CHR = ''
-            key = UI.getKey()
-
-            if   key == UI.key['start']:                # top key:    start work
-                wt_day.startWork(TIME_H)
-                COLOR = LCD.green
-
-            elif key == UI.key['stop']:                 # bottom key: pause
-                wt_day.stopWork(TIME_H)
-                COLOR = LCD.red
-
-            elif key == UI.key['resetTotal']:           # 2nd key from top : reset accumulated total work time
-                TOTAL_WT = 0.
-                # no real function yet !
-                # would have to update wt_day  ?
-
-            elif key == UI.key['setWd']:                # not implemented:  set week day
-                if EMBEDDED:
-                    pass
-                else:
-                    new_wd = input("Working Day 0...6: ")
-                    TIME_WD = MY_Time.setWd(int(new_wd))
-                Config.write()
-
-            elif key == UI.key['setH']:                 # joystick press:     set hour from user input (not embedded) or simply to 12:00
-                if EMBEDDED:
-                    TIME_H = MY_Time.setH(int(12))
-                else:
-                    new_hour = input("Hour 0...23: ")
-                    TIME_H = MY_Time.setH(int(new_hour))
-                
-            elif key == UI.key['setH0']:                # not implemented:     set minutes/seconds to 00:00
-                hour = round(TIME_H)
-                TIME_H = MY_Time.setH0(hour)
-
-            elif key == UI.key['setPlan']:              # not implemented:      set planned work time / week
-                if EMBEDDED:
-                    pass
-                else:
-                    wtp = input("Hours/week 0..40.5: ")
-                
-                WORK_TIME_PLAN = wtp
-                WT_Day.set_Wt_Plan(wtp)
-                WT_Week.work_time_plan = wtp
-                Config.write()
-
-            elif key == UI.key['setEndDay']:            # 3rd from top:   set TIME_H = 23:59:30
-                time_h = 23.988
-                TIME_H, TIME_WD = MY_Time.changeTime(time_h)
-                COLOR = LCD.red
-
+        _sec = time.mktime(tuple(MY_Time.localTimeTuple))
+        _tt = time.localtime(_sec)
         
-        # endif ui_query
-        
+        # react to key press
+        UI.action(wt_day, wt_recent, wt_week, wt_last_week)
+               
         wt_day.update(TIME_H)        
         wt_week.update(totalWt=wt_day.totalWt, totalBalance=wt_day.totalBalance, totalBreak=wt_day.totalBreak)
                     
+        # screen refresh
+        if int(_sec) % 10 == 0 and update:
+            LCD.fill(0x0000)
+            screen_update(wt_day, wt_recent, wt_week, wt_last_week, layout)
 
-        # LCD Output
-        if EMBEDDED:
-            _sec = time.mktime(tuple(MY_Time.localTimeTuple))
-            _tt = time.localtime(_sec)
-            
-            if True:
-                #  direkte output per UI.print, keine SSEG
-                y=0
-                UI.print("    WD  AZ     +/-    Pause",0)
+        # enable next screen update
+        if int(_sec) % 3 == 1:
+            update = True
 
-                # day summaries
-                n_wday=wt_day.wd
-                y += dy    
-                UI.printLine(wt_day.getValues(),x=0, y=y, intro_txt=' 0 ', n_wday=n_wday)
-                y += dy    
-                for i in range(4):
-                    UI.printLine(wt_recent[i].getValues(),x=0, y=y, intro_txt='-1 ', n_wday=int(n_wday-1-i))
-                    y += dy    
-                # week summaries
-                UI.printLine(wt_week.getValues(),x=0, y=y+dy, intro_txt=' W0', n_wday=0)
-                UI.printLine(wt_last_week.getValues(),x=0, y=y+2*dy, intro_txt='W-1', n_wday=0)
-                y = y+4*dy
-
-                # clock and ....
-                hh,mm,ss = MY_Time.localTimeTuple[3:6]
-                hhmmss = "%02d:%02d:%02d"%(hh,mm,ss)
-                UI.print(hhmmss+'  version 0.1',y)
-                
-            if False:
-                #UI.print("UI print test %d"%222,30)
-                # strftime not in micropython
-                #UI.print("%s  Hour %.4f  weekDay %d"%(time.strftime("%d.%m %H:%M:%S",_tt),TIME_H, TIME_WD),10)  # strftime not existing !
-                # UI.print("%s  Hour %.2f  weekDay %d"%('datum',TIME_H, TIME_WD),10)
-                #UI.print("Today Balance %.3f  Brakes %.3f  Hours %.4f"%(wt_day.totalBalance,wt_day.totalBreak, wt_day.totalWt),30)
-                #UI.print("yest  Balance %.3f  Brakes %.3f  Hours %.4f"%(wt_last_day.totalBalance,wt_last_day.totalBreak, wt_last_day.totalWt),50)
-                #UI.print("Week  Balance %d"%0, 70)
-                #UI.print("Last Wk Balan %d "%0, 90)
-                pass
-            ss = "%.3f"%TIME_H
-            ss = ss[-2:]
-
-            if int(_sec) % 10 == 1:
-                update = True
-
-            if int(_sec) % 10 == 0 and update:
-                LCD.fill(0x0000)
-                update = False
-                            
-        else:
-            _sec = time.mktime(tuple(MY_Time.localTimeTuple))
-            _tt = time.localtime(_sec)                    
-            print("%s  Hour %.4f  weekDay %d"%(time.strftime("%d.%m %H:%M:%S",_tt),TIME_H, TIME_WD))
-            print("    Today Balance %.4f  Brakes %.4f  Hours %.4f"%(wt_day.totalBalance,wt_day.totalBreak, wt_day.totalWt))
-            print("Yesterday Balance %.4f  Brakes %.4f  Hours %.4f"%(wt_last_day.totalBalance,wt_last_day.totalBreak, wt_last_day.totalWt))
-            print("Week Balance",0)
-            print("Last Week Balance",0)
-        
+        # screen update every 3 sec.
+        if int(_sec) % 3 == 0 and update:
+            update = False
+            screen_update(wt_day, wt_recent, wt_week, wt_last_week, layout)
+                        
         # process presence sensor input
         # tbd
         # trigger start or stop ...
@@ -590,37 +513,41 @@ def main():
         # end of day actions
         condition = (TIME_H >= 23.98)
         #condition = ((TIME_H *60*60) % 20 == 0)  # debugging
-        if condition and dayEndProcessed == False:  # last minute
-            print("condition day end", _sec)
-            dayEndProcessed = True
+        if condition and processDayEnd == True:  # last minute
+            print("condition day end @ sec=", _sec)
+            processDayEnd = False
             todays_wt = wt_day.endDay()
-            Logging.write_day()
+            Logging.write_day(MY_Time.localTimeTuple, [wt_day.totalWt, wt_day.totalBalance, wt_day.totalHours, wt_day.start])            
             wt_week.addDay(totalWt=wt_day.totalWt, totalBalance=wt_day.totalBalance, totalBreak=wt_day.totalBreak)
-            Logging.write_week()
-            Config.write()
+            #CONFIG.write()
+            
             # fifo wt_recent update
-            wt_recent.pop()
+            wt_recent.pop()   # pop() = remove last entry
             wt_recent = [wt_day] + wt_recent
             wt_day =  WT_Day(work_time_plan=WORK_TIME_PLAN)
-            # roll over days and print
-            if TIME_WD == 4:             
-                # Friday end of day
-                print("wd == 4")
+            COLOR = LCD.white
+
+            # roll over days
+            if TIME_WD == 4:          # Friday end of day
+                print("Friday: wd == 4")
                 wt_last_week = wt_week
                 wt_week = WT_Week(work_time_plan=WORK_TIME_PLAN)
+                Logging.write_week(MY_Time.localTimeTuple, [wt_week.totalWt, wt_week.totalBalance])
             if TIME_WD == 6:             
                 # Sunday end of day
-                if not EMBEDDED:
-                    print("Week new")
+                print("New Week")
 
-
-        if TIME_H < 0.1:
-            dayEndProcessed = False
+        if TIME_H < 0.0083:
+            processDayEnd = True
             
         if EMBEDDED:
             time.sleep_ms(200)
-            
+        else:
+            time.sleep(0.2)
+
+  
 #######################################################
+ 
 #%%
 if __name__ == '__main__':     
     main()

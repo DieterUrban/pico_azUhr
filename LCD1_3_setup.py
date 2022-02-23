@@ -20,6 +20,10 @@ pwm.freq(1000)
 pwm.duty_u16(32768)#max 65535
 
 LCD = LCD_1inch3()
+#some more colors
+LCD.lightBlue = (0x1f << 12) + (0x06 <<6) + 0x06    # 5 bit, order = brg
+LCD.orange = (0x02 << 12) + (0x1f <<6) + 0x03       # 5 bit, order = brg
+
 #color BRG
 LCD.fill(0x0000)
 LCD.show()
