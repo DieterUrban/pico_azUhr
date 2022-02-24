@@ -39,6 +39,21 @@ Screen layout:
      for LCD 1,3" color display, 240x240 pixel
 
 """
+######################################################
+"""
+to do
+
+bsh break = 0,5h + 0.25h frühstück  (eigendlich frühstück nur von 9 - 9:15, irgnoriert ...)
+AZ Modell: break = max(echte break, bsh break)
+Gesamt Zeit balance anzeigen, mit reset auf 0 fkt  (idee: sammeln über tage und Eintragen in bsh --> wieder ab 0)
+
+config und logging file nicht geschrieben ?
+
+last_week und last days bekommen falsche werte ?
+
+pause update während pause
+
+"""
 
 #####################################################
 import sys, os
@@ -47,7 +62,9 @@ EMBEDDED = False  # set True if running embedded (>enables io-port, RTC time set
 EMBEDDED = True
 if 'micropython' in str(sys.implementation):
     EMBEDDED = True
-    
+EMBEDDED_KEYS = True     # use False for python input triggered by mouse scroll whell instead of I/O query for keys
+#EMBEDDED_KEYS = False
+ 
 _SSEG = True  # is 7seg- implementation used for output, or simple print to framebuffer
 _SSEG = False    
 
@@ -61,12 +78,11 @@ import framebuf
 from Pico_LCD1_3 import LCD_1inch3
 from LCD1_3_setup import *                 # provides LCD, KEYxxx
 
-if EMBEDDED:
-    pass
-
-else:
-    import worktime
+if not EMBEDDED:
+    import worktime  
     worktime.EMBEDDED = False
+    
+if not EMBEDDED_KEYS:
 #    import keyboard    # requires root for operation !!!!!
 #    def getchr():
 #        return keyboard.read_key()   
@@ -83,6 +99,7 @@ else:
         listener = pynput.keyboard.Listener(
             on_press=hotkey.press,
             on_release=hotkey.release )
+    # use mouse listener to activate input, works on spyder ide
     listener = pynput.mouse.Listener(
         on_scroll=on_scroll)
     listener.start()
@@ -104,7 +121,7 @@ VERSION = 0.2
 
 TIME_H = 0.     # actual hour (decimal)
 TIME_WD = 0     # actual week day (0 = Monday)
-TOTAL_WT = 0.   # accumulated work time - planned worktime
+BALANCE_PAST = 0. # accumulated work time balance past days
 WORK_TIME_PLAN = 35.0 # work time per hour plan
 COLOR = LCD.red if EMBEDDED else 0  # default when starting day: pause condition
 WDAYS = ['Mo','Di','Mi','Do','Fr','Sa','So']    # shortcuts used for screen output
@@ -140,13 +157,13 @@ class UI():
     @classmethod
     def query(cls):
         global KEY_CHR
-        if EMBEDDED:
+        if EMBEDDED_KEYS:
             for key in [KEYA,KEYB,KEYX,KEYY, CTRL,UP,DOWN,LEFT,RIGHT]:
                 if key.value()==0:
                     return True
             return False
         else:
-            if KEY_CHR != '':
+            if KEY_CHR != '':                 # get by external event
                 KEY_CHR = ''
                 return True
             else:
@@ -154,7 +171,7 @@ class UI():
         
     @classmethod
     def getKey(cls):
-        if EMBEDDED:
+        if EMBEDDED_KEYS:
             if KEYA.value()==0:           
                 return UI.key['start']       # top key
             if KEYY.value()==0:            
@@ -174,7 +191,7 @@ class UI():
             if LEFT.value()==0:              
                 return UI.key['decWd']       # joystick left: dec week day
         else:
-            key = input("enter input key start|stop|incH|decH|incWd|decWd|resetTotal|setEndDay : ")
+            key = input("enter input key start|stop|incH|decH|incWd|decWd|resetTotal|setEndDay/store : ")
             # return key
             if not key in UI.key:
                 return ''
@@ -183,18 +200,20 @@ class UI():
 
     @classmethod
     def action(cls, *args):  #, wt_day, wt_recent, wt_week, wt_last_week):
-        global COLOR, TIME_H, TIME_WD, TOTAL_WT, CONFIG, layout
+        global COLOR, TIME_H, TIME_WD, BALANCE_PAST, CONFIG, layout
         global  wt_day, wt_recent, wt_week, wt_last_week
-        if UI.query():
+        if not UI.query():
+            UI.lastKey = ''
+        else:
             KEY_CHR = ''
             key = UI.getKey()
             if key:
                 print(key)
 
             # special combined presses for debugging
-            if key == UI.key['resetTotal'] and UI.lastKey == UI.key['decH']: # down + 2nd key --> enter micropython console mode by forcing crah
+            if key == UI.key['resetTotal'] and UI.lastKey == UI.key['start']: # down + 2nd key --> enter micropython console mode by forcing crah
                 print(execution_ended)
-            if key == UI.key['setEndDay'] and UI.lastKey == UI.key['decH']: # down + 3rd key --> simulate day end
+            if key == UI.key['setEndDay'] and UI.lastKey == UI.key['start']: # down + 3rd key --> simulate day end
                 print("set to 23:59:30")
                 wt_day.stopWork(TIME_H)
                 wt_day.endDay()
@@ -206,52 +225,51 @@ class UI():
                 wt_day.startWork(TIME_H)
                 COLOR = LCD.green
                 balance = wt_day.totalBalance
-                CONFIG.setToday(hours_today= balance)
+                CONFIG.config['balance_today'] = balance
                 #CONFIG.write()
 
             elif key == UI.key['stop']:                 # bottom key:  pause
                 wt_day.stopWork(TIME_H)
                 COLOR = LCD.red # LCD.orange
                 balance = wt_day.totalBalance
-                CONFIG.setToday(hours_today= balance)
+                CONFIG.config['balance_today'] = balance
                 #CONFIG.write()
 
-            elif key == UI.key['resetTotal']:           # 2nd key from top : reset today
-                TOTAL_WT = 0.
+            elif key == UI.key['resetTotal']:           # 2nd key from top : reset past balance (and today ?) 
+                BALANCE_PAST = 0.
+                CONFIG.config['balance_past'] = 0.
                 # reset current day
-                wt_day =  WT_Day(work_time_plan=WORK_TIME_PLAN)
+                # wt_day =  WT_Day(work_time_plan=WORK_TIME_PLAN)
 
             elif key == UI.key['incWd']:                # joystick right:   increment week day
                 TIME_WD = MY_Time.changeDate(+1)
                 wt_day.wd = TIME_WD
                 date = MY_Time.localTimeTuple[0:3]
-                CONFIG.setToday(date= date)
+                CONFIG.config['date'] = date
                 #CONFIG.write()
 
             elif key == UI.key['decWd']:                # joystick left:    decrement week day
                 TIME_WD = MY_Time.changeDate(-1)
                 wt_day.wd = TIME_WD
                 date = MY_Time.localTimeTuple[0:3]
-                CONFIG.setToday(date= date)
+                CONFIG.config['date'] = date
                 #CONFIG.write()
 
             elif key == UI.key['incH']:                 # joystick up:      increment hour, mm:ss == 0
                 new_time = round(TIME_H + 0.5)
                 TIME_H = MY_Time.setH0(new_time)
-                CONFIG.setToday(time= TIME_H)
+                CONFIG.config['time'] = TIME_H
                 #CONFIG.write()
 
             elif key == UI.key['decH']:                 # joystick down:    decrement hour, mm:ss == 0
                 new_time = round(TIME_H - 1.)
                 TIME_H = MY_Time.setH0(new_time)
-                CONFIG.setToday(time= TIME_H)
+                CONFIG.config['time'] = TIME_H
                 #CONFIG.write()
 
             elif key == UI.key['store']:                # joystick press:    store actual to config
-                balance = wt_day.totalBalance
-                CONFIG.setToday(hours_today= balance)
                 date = MY_Time.localTimeTuple[0:3]
-                CONFIG.setToday(time= TIME_H, date= date)
+                CONFIG.updateState(wt_day, time=TIME_H, date=date)
                 CONFIG.write()
                 # Logging.write_day(MY_Time.localTimeTuple, [wt_day.totalWt, wt_day.totalBalance, wt_day.totalHours, wt_day.start])            
                 
@@ -263,9 +281,10 @@ class UI():
                 COLOR = LCD.white
 
                 balance = wt_day.totalBalance
-                CONFIG.setToday(hours_today= balance)
                 date = MY_Time.localTimeTuple[0:3]
-                CONFIG.setToday(time= TIME_H, date= date)
+                CONFIG.config['balance_today'] = balance
+                CONFIG.config['time'] = TIME_H
+                CONFIG.config['date'] = date
                 CONFIG.write()
 
 
@@ -362,7 +381,9 @@ def screen_update(wt_day, wt_recent, wt_week, wt_last_week, layout):
         # clock and ....
         hh,mm,ss = MY_Time.localTimeTuple[3:6]
         hhmmss = "%02d:%02d:%02d"%(hh,mm,ss)
-        UI.print(hhmmss+" AZ_Plan=%1.1f  v%1.1f"%(wt_day.wtPlan,VERSION),y)
+        total_balance = BALANCE_PAST + wt_day.totalBalance
+        UI.print(hhmmss+" Tot=%1.2f Pla=%1.2f"%(total_balance, wt_day.wtPlan),y)
+        UI.print("v%1.1f"%(VERSION),y+dy, x=200)
         
     if False:
         #UI.print("UI print test %d"%222,30)
@@ -392,34 +413,40 @@ def _screen_update_nonEmbedded(wt_day, wt_recent, wt_week, wt_last_week, layout)
 #####################################################
     
 def main():
-    global TIME_H, TIME_WD, TOTAL_WT, WORK_TIME_PLAN, KEY_CHR, COLOR, CONFIG, layout
+    global TIME_H, TIME_WD, BALANCE_PAST, WORK_TIME_PLAN, KEY_CHR, COLOR, CONFIG, layout
     global wt_day, wt_recent, wt_week, wt_last_week
     print("start main")
 
 #%%    
-
+    print(EMBEDDED_KEYS)
     MY_Time.RTC = machine.RTC()
     
+    ls = os.listdir('/')
+    print("ls: ", ls)
     CONFIG = Config()  # only class methods, no real instances ...
     config = CONFIG.read()
     print(config)
     
     WORK_TIME_PLAN = config['workTimePlan']
+    WT_Day.set_Wt_Plan(WORK_TIME_PLAN)
+    WT_Day.wtMinBreak = config['breakTime']
     KEY_CHR = ''
-    dayEndProcessed = False
 
     # n_wd = MY_Time.localTimeTuple[6]  # actual week day
     date = config['date']
     TIME_WD = MY_Time.setDate(date)    
-    TIME_H = config['time']
-    TIME_H, TIME_WD = MY_Time.setTime(TIME_H)
+    TIME_H, TIME_WD = MY_Time.setTime(config['time'])
     print(TIME_H)
 
+
     # setup display out
-    # 
-    
+    COLOR = LCD.white     # start in dayEnd mode
     ui_input = UI()
+
+    # setup worktime objects
     wt_day =  WT_Day(work_time_plan=WORK_TIME_PLAN, time_wd = TIME_WD)
+    wt_day.reset2Balance(config['balance_today'])
+    BALANCE_PAST = config['balance_past']
     wt_recent = []
     for i in range(4):
         wt_recent  +=  [WT_Day(work_time_plan=WORK_TIME_PLAN)]
@@ -481,6 +508,7 @@ def main():
     processDayEnd = True
 
 #%%
+    print("start while")
     while True:
         TIME_H, TIME_WD = MY_Time.getLocaltime()        
         _sec = time.mktime(tuple(MY_Time.localTimeTuple))
@@ -492,10 +520,17 @@ def main():
         wt_day.update(TIME_H)        
         wt_week.update(totalWt=wt_day.totalWt, totalBalance=wt_day.totalBalance, totalBreak=wt_day.totalBreak)
                     
-        # screen refresh
+        # screen refresh every 10 sec.
         if int(_sec) % 10 == 0 and update:
             LCD.fill(0x0000)
             screen_update(wt_day, wt_recent, wt_week, wt_last_week, layout)
+
+        # config and actual balance save every hour
+        if int(_sec) % (60*60) == 0 and update:
+            date = MY_Time.localTimeTuple[0:3]
+            CONFIG.updateState(wt_day, time=TIME_H, date=date)
+            CONFIG.write()
+
 
         # enable next screen update
         if int(_sec) % 3 == 1:
@@ -519,7 +554,7 @@ def main():
             todays_wt = wt_day.endDay()
             Logging.write_day(MY_Time.localTimeTuple, [wt_day.totalWt, wt_day.totalBalance, wt_day.totalHours, wt_day.start])            
             wt_week.addDay(totalWt=wt_day.totalWt, totalBalance=wt_day.totalBalance, totalBreak=wt_day.totalBreak)
-            #CONFIG.write()
+            CONFIG.write()
             
             # fifo wt_recent update
             wt_recent.pop()   # pop() = remove last entry

@@ -38,6 +38,7 @@ class WT_Day():
         Zeitdaten eines Tages sowie Methoden rund um Zeiteinträge
     """
     wtPlan = 0.        # work time per day plan
+    wtMinBreak = 0.    # min break according to plan
     
     @classmethod
     def set_Wt_Plan(cls, work_time_plan):
@@ -48,31 +49,34 @@ class WT_Day():
                        time_wd=0
                        ):
         self.wd = time_wd          # week day (0 = Monday)  
-        self.start = -1            # todays hour.decimal first start time
-        self.stop = -1             # todays hour.decimal final stop time
+        self.firstStart = -1       # todays hour.decimal first start time
+        self.finalStop = -1        # todays hour.decimal final stop time
         self.actualStart = -1      # last recent start time (e.g. after break)
         self.actualStop = -1       # last recent stop time
+        self.actualBreak = 0.      # duration of actual break
         WT_Day.set_Wt_Plan(work_time_plan)
         self.totalWtLastStop = 0.  # total working hours excluding breaks up to last stop
-        self.totalWt = 0.          # total working hours excluding breaks up to actual time
-        self.totalBalance = 0.     # work time balance up to actual time
+        self.totalWt = 0.          # total working hours -breaks up to actual time
+        self.totalBalance = 0.     # work time balance (totalWt - plan) up to actual time
         self.totalHours = 0.       # total time stop - start
         self.totalBreak = 0.       # break time entered by user  (actual break will not be included unless work started again or day ended)
-        self.working = False       # work or break/endOfWork status
+        self.working = 0           # work (2) or break (1) endOfWork (0) status
     
     def startWork(self, time_h=0.):
         """
         Set start work timestamp. 
         If not first --> end break and update break time
         """
-        self.working = True
-        if self.start < 0:
-            self.start = time_h
+        # status to working
+        self.working = 2
+        if self.firstStart < 0:
+            self.firstStart = time_h
         if self.actualStop >= 0:
             # update break time
-            breakTime = time_h - self.actualStop
-            self.totalBreak += breakTime
+            actualBreak = time_h - self.actualStop
+            self.totalBreak += actualBreak
         self.actualStart = time_h
+        self.actualBreak = 0
         
     
     def stopWork(self, time_h=0.):
@@ -80,12 +84,13 @@ class WT_Day():
         Set stop work timestamp. 
         Update totalWT = total Worktime
         """
-        if self.start < 0:
+        if self.firstStart < 0:
             # stop before start ... do nothing
             return
-        if self.stop < 0:
+        if self.finalStop < 0:
             pass
-        self.working = False
+        # status to break
+        self.working = 1
         self.actualStop = time_h
         workTimeFromLastStart = time_h - self.actualStart
         self.totalWtLastStop += workTimeFromLastStart
@@ -97,14 +102,22 @@ class WT_Day():
         update total hours, balance and breaks
         
         """
-        if self.working:
-            self.totalHours = time_h - self.start
-            workTime = time_h - self.actualStart
-            self.totalWt = self.totalWtLastStop + workTime
+        if self.working >= 2:
+            self.totalHours = time_h - self.firstStart
+            newWorkTime = time_h - self.actualStart     # wortime since last break end
+            self.totalWt = self.totalWtLastStop + newWorkTime
+        elif self.working == 1:
+            self.actualBreak = time_h - self.actualStop
         self.totalBalance = self.totalWt - WT_Day.wtPlan
         return self.totalWt
 
-        
+    # update according to provided balance: used after restart. Assuming to be in endDay status
+    def reset2Balance(self, balance_today):
+        hours = balance_today + WT_Day.wtPlan
+        self.totalHours = hours
+        self.totalBalance = balance_today
+        self.totalWtLastStop = hours
+        self.totalWt = hours
         
     def endDay(self):
         """
@@ -113,14 +126,16 @@ class WT_Day():
         Returns:
             todays working time
         """
-        self.working = False
-        self.stop = self.actualStop
-        self.totalHours = self.stop - self.start
+        # status to end of Day (= no break, no working)
+        self.working = 0
+        self.finalStop = self.actualStop
+        self.totalHours = self.finalStop - self.firstStart
+        self.totalWt = self.totalHours - max (self.totalBreak, WT_Day.wtMinBreak)
         self.totalBalance = self.totalWt - WT_Day.wtPlan
         return self.totalWt
     
     def getValues(self):
-        return (self.totalHours, self.totalBalance, self.totalBreak)
+        return (self.totalHours, self.totalBalance, self.totalBreak+self.actualBreak)
         
 #####################################################
 
@@ -175,23 +190,23 @@ class Config():
     """
     config = {
         # values to support restart after power break
-        'date': (2020,1,1),          # actual date tuple (year,month,date)
+        'date': (2020,1,1),       # actual date tuple (year,month,date)
         'time':    0.0,           # actual time in decimal format  23.999
-        'hours_today':    0.,     # balance time actual day
-        # config values, not changed by program
+        'balance_today':    0.,   # balance time actual day
+        'balance_past': 0.,       # balance accumulated from old days 
+         # config values, not changed by program
         'workTimePlan':   39.0,   # planned working time per week
-        'breakTimeLunch': 0.5,    # lunch break
-        'breakTimeBf':    0.25,   # breakfast break
-        'workTimeBreak':  6.      # treshold work time to apply breakTimeBf
+        'breakTime': 0.5          # minimum (lunch) break time per day
     }
-    configFile = 'config.json'
+    configFile = 'config.json'    # without directory works on both embedded and non embedded
     
     @classmethod
     def read(cls):
         file = Config.configFile
         try:
             with open(file, 'r') as f:
-                Config.config = json.loads(f.readall())
+                Config.config = json.load(f)
+                f.close()
         except:
             # create new file if not exists
             Config.write()
@@ -202,20 +217,36 @@ class Config():
         file = Config.configFile
         with open(file, 'w') as f:
             f.write(json.dumps(Config.config))
+            f.flush()
             f.close()
             print("config written")
             return True
         return False
     
     @classmethod
-    def setToday(cls, time=None, hours_today=None, date=None):
+    def setToday(cls, time=None, hours_today=None, date=None, balance_past=None):
         if time:
             Config.config['time'] = time
         if hours_today:
             Config.config['hours_today'] = hours_today
         if date:
             Config.config['date'] = date
+        if balance_past:
+            Config.config['balance_past'] = balance_past
         return Config.config    
+
+    # update full actual state
+    @classmethod
+    def updateState(cls, wt_day=None, time=None, date=None):
+        if time:
+            Config.config['time'] = time
+        if date:
+            Config.config['date'] = date
+        if wt_day:
+            Config.config['balance_today'] = wt_day.totalBalance
+            #CONFIG.config['balance_past'] = 0.
+        return Config.config    
+                
 
 
 #import json
@@ -237,6 +268,7 @@ class Logging():
         line = ', '.join([str(x) for x in values]) + '\n'
         with open(file, 'a') as f:
             f.write(time_txt+', '+line)
+            f.flush()
             f.close()
             return True
         return False
@@ -249,6 +281,7 @@ class Logging():
         line = ', '.join([str(x) for x in values]) + '\n'
         with open(file, 'a') as f:
             f.write(time_txt+', '+line)
+            f.flush()
             f.close()
             return True
         return False
@@ -355,9 +388,6 @@ class MY_Time():
         time_h, time_wd = MY_Time.getLocaltime()
         print("setRTCTime", time_wd, time_h)
         return time_h, time_wd
-
-#####################################################
-
     
        
 #######################################################
