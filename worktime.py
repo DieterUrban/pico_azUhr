@@ -41,45 +41,51 @@ class WT_Day():
     wtMinBreak = 0.    # min break according to plan
     
     @classmethod
-    def set_Wt_Plan(cls, work_time_plan):
+    def set_Wt_Plan(cls, work_time_plan, minBreak=None):
         WT_Day.wtPlan = round(work_time_plan/5.,2)
+        if minBreak:
+            WT_Day.wtMinBreak = minBreak
 
     def __init__(self, 
                        work_time_plan=WORK_TIME_PLAN,
                        time_wd=0
                        ):
-        self.wd = time_wd          # week day (0 = Monday)  
+        self.wd = time_wd          # week day (0 = Monday). not used (and not updated) internaly  
+        WT_Day.set_Wt_Plan(work_time_plan)
+        # values set by work status change events
         self.firstStart = -1       # todays hour.decimal first start time
         self.finalStop = -1        # todays hour.decimal final stop time
         self.actualStart = -1      # last recent start time (e.g. after break)
         self.actualStop = -1       # last recent stop time
-        self.actualBreak = 0.      # duration of actual break
-        WT_Day.set_Wt_Plan(work_time_plan)
-        self.totalWtLastStop = 0.  # total working hours excluding breaks up to last stop
+        # self.totalWtLastStop = 0.  # total working hours excluding breaks up to last stop
+        self.totalBreak = 0.       # break time entered by user  (with actualBreak time )
+        # these values get regular update
         self.totalWt = 0.          # total working hours -breaks up to actual time
-        self.totalBalance = 0.     # work time balance (totalWt - plan) up to actual time
-        self.totalHours = 0.       # total time stop - start
-        self.totalBreak = 0.       # break time entered by user  (actual break will not be included unless work started again or day ended)
-        self.working = 0           # work (2) or break (1) endOfWork (0) status
+        self.totalBalance = -WT_Day.wtPlan   # work time balance (totalWt - plan) up to actual time. wtMinBreak subtracted
+        self.totalHours = 0.       # total time actual or stop - start
+        self.actualBreak = 0.      # duration of actual break
+        self.working = 0           # working (2) or break (1) or endOfWork (0) status
     
-    def startWork(self, time_h=0.):
+    def startWork(self, time_h):
         """
         Set start work timestamp. 
         If not first --> end break and update break time
         """
         # status to working
-        self.working = 2
         if self.firstStart < 0:
             self.firstStart = time_h
-        if self.actualStop >= 0:
-            # update break time
+        if self.actualStop >= 0 and self.working == 1:
+            # ending a break -> update break time
             actualBreak = time_h - self.actualStop
             self.totalBreak += actualBreak
-        self.actualStart = time_h
+        if self.working < 2:
+            self.actualStart = time_h
         self.actualBreak = 0
+        self.working = 2
+        self.update(time_h)
         
     
-    def stopWork(self, time_h=0.):
+    def stopWork(self, time_h):
         """
         Set stop work timestamp. 
         Update totalWT = total Worktime
@@ -87,15 +93,19 @@ class WT_Day():
         if self.firstStart < 0:
             # stop before start ... do nothing
             return
-        if self.finalStop < 0:
+        if self.finalStop >= 0:
+            # restart from dayEnd, is ok
             pass
-        # status to break
+        if self.working > 1:
+            # new stop 
+            self.actualStop = time_h
+            #workTimeFromLastStart = time_h - self.actualStart
+            #self.totalWtLastStop += workTimeFromLastStart
         self.working = 1
-        self.actualStop = time_h
-        workTimeFromLastStart = time_h - self.actualStart
-        self.totalWtLastStop += workTimeFromLastStart
-        self.totalWt = self.totalWtLastStop
-        self.totalBalance = self.totalWt - WT_Day.wtPlan
+        #self.totalWt = self.totalWtLastStop
+        #self.totalBalance = self.totalWt - WT_Day.wtPlan
+        self.update(time_h)
+
 
     def update(self, time_h):
         """
@@ -103,23 +113,35 @@ class WT_Day():
         
         """
         if self.working >= 2:
+            # working status
             self.totalHours = time_h - self.firstStart
-            newWorkTime = time_h - self.actualStart     # wortime since last break end
-            self.totalWt = self.totalWtLastStop + newWorkTime
+            #newWorkTime = time_h - self.actualStart     # wortime since last break end
+            #self.totalWt = self.totalWtLastStop + newWorkTime
+            self.totalWt = self._totalWt()
         elif self.working == 1:
+            # break status
+            self.totalHours = time_h - self.firstStart
             self.actualBreak = time_h - self.actualStop
-        self.totalBalance = self.totalWt - WT_Day.wtPlan
+            self.totalWt = self._totalWt()
+        else:
+            # endDay status
+            pass
+        self.totalBalance = self._totalBalance()
         return self.totalWt
+
 
     # update according to provided balance: used after restart. Assuming to be in endDay status
     def reset2Balance(self, balance_today):
         hours = balance_today + WT_Day.wtPlan
         self.totalHours = hours
         self.totalBalance = balance_today
-        self.totalWtLastStop = hours
-        self.totalWt = hours
+        # self.totalWtLastStop = hours
+        self.totalBreak = WT_Day.wtMinBreak
+        # leave update of some internal values to next update call
+        #self.totalWt = hours
         
-    def endDay(self):
+        
+    def endDay(self, time_h=None):
         """
         End of day: update stop and total hours
         
@@ -128,14 +150,26 @@ class WT_Day():
         """
         # status to end of Day (= no break, no working)
         self.working = 0
+        if time_h:
+            # use as stop time
+            self.actualStop = time_h
         self.finalStop = self.actualStop
         self.totalHours = self.finalStop - self.firstStart
-        self.totalWt = self.totalHours - max (self.totalBreak, WT_Day.wtMinBreak)
-        self.totalBalance = self.totalWt - WT_Day.wtPlan
+        self.totalWt = self._totalWt()
+        self.totalBalance =  self._totalBalance()
+        if time_h: self.update(time_h)
         return self.totalWt
     
     def getValues(self):
         return (self.totalHours, self.totalBalance, self.totalBreak+self.actualBreak)
+    
+    
+    def _totalWt(self):
+        breaks = max(self.totalBreak+self.actualBreak, WT_Day.wtMinBreak)
+        return max(0.,self.totalHours - breaks)
+    
+    def _totalBalance(self):
+        return self.totalWt - WT_Day.wtPlan
         
 #####################################################
 

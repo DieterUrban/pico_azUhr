@@ -43,16 +43,103 @@ Screen layout:
 """
 to do
 
-bsh break = 0,5h + 0.25h frühstück  (eigendlich frühstück nur von 9 - 9:15, irgnoriert ...)
-AZ Modell: break = max(echte break, bsh break)
-Gesamt Zeit balance anzeigen, mit reset auf 0 fkt  (idee: sammeln über tage und Eintragen in bsh --> wieder ab 0)
+worktime unit tests in separate file
 
-config und logging file nicht geschrieben ?
+konzept für UI: Initial setup:  
+    - Use case diagramme überlegen
+    - Reset aktuelle Tag benötigt
+    - Reset Balance (ohne änderung aktuelle Tag)
 
 last_week und last days bekommen falsche werte ?
 
-pause update während pause
+full (binary) storage and reload (pickle ?) von day, 5-day, week
 
+Refactor von Berechnnungen wt_day  (ist z.Z. inkosistent)
+- klare funktionen für update der Teilbereiche pause, Arbeitszeit,  balance ...
+- fkt für anpassung zeit ohne dass sich Werte ändern (Uhr stellen ....)
+- copy fkt für werte (z.B. aus status storage oder config storage)
+
+
+klären was angezeigt wird, jeweils hh:mm oder hh.decimal ? 
+
+"""
+#####################################################
+"""
+Anzeige
+
+Tages Balance Zeit       hh:mm             --> übersicht 
+Tages Anwesenheitszeit   hh:mm
+Tages Pause Zeit         hh:mm
+Wochenzeiten             entsprechend
+
+AZ_Korrektur             hh.dec            --> einfache Übernahme in BSH tool (AZ Ende bei tageskorrektur)
+  hier klären ob mit 45' Pause oder ohne
+Total_Balance            hh.dec            --> einfache Kontrolle wie BSH tool (bei tageskorrektur )
+
+"""
+#####################################################
+
+"""
+Use Case definitions
+
+1. Start Work
+    Arbeitstag starten oder nach Pause Fortsetzen
+    -> AZ startet zählen
+       Pause stop zählen, wird beended
+    
+2. Stop Work (Pause)
+    Pause beginnen
+    -> AZ stopt zählen
+       Pausezeit zält
+       
+3. End Day
+    Typisch: Tagesende
+    Auch: Unterbrechung ohne Pause zählen
+    Arbeitszeit Zählen stoppen.  Pausezeit nicht zählen
+    -> AZ stopt zählen
+       Pause stopt zählen, wird ggf. beendet
+       
+4. Reset Total Balance
+    Balance von mehrern Tagen wird in BSH-SAP übernommen und hier gelöscht
+    Das ganze findet währent Arbeitszeit eines Tages statt
+    --> Aktuelle Arbeitstag wird nicht geändert
+        --> total Balance ist nur von Vortagen ohne aktuelle Tag
+        
+5. Reset Aktuelle Tag
+    Aktuelle Tag ist fehlerhaft oder wurde in total balance Übertrag -> bsh berücksichtigt
+    --> aktuelle Tag wird so gesetzt dass today_balance zum aktuellen Zeitpunkt 0 ist. Pause auf 0, AZ=WorkHours auf ?
+        workmode wird auf dayEnd gesetzt --> today_balance würde 0 bleiben
+        Bei bedarf neu start Work --> balance wird ab 0 aktualisiert
+
+6. Inc/Dec Time:Hour
+    Uhrzeit eine Stunde vor / zurück. Dabei mm:ss auf 0
+    --> Uhrzeit (als Folge ggf. Datum) ändern
+        today balance soll unverändert bleiben
+        
+7. Inc/Dec week day
+    Wochentag ändern. Uhrzeit unverändert lassen
+    --> keine Änderung der AZ in allen Tagen / Wochen
+        Anpassung Wochentagsanzeige heute
+        nice-to-have: Anpassung wochentag in last-days 
+        nice-to-have: Update der Wochen-salden
+        
+System use cases
+
+11. Day rollover
+    jeweils 23:59 automatisch
+    --> Umschalten auf nä. Tag
+        workmode auf endDay setzen (stop, keine Pause, keine Zeitstempel)
+        last-days rollover 
+        neue Tag initialisieren
+        zustand und config speichern
+        tages daten logging
+            
+12. week update
+    jeweils Freitag abend nach day rollover
+    --> wochensaldo berechnen
+        wochen rollover
+        wochen daten logging
+        
 """
 
 #####################################################
