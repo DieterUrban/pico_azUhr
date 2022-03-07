@@ -639,7 +639,7 @@ def main():
             print("condition day end @ sec=", _sec)
             processDayEnd = False
             todays_wt = wt_day.endDay()
-            Logging.write_day(MY_Time.localTimeTuple, [wt_day.totalWt, wt_day.totalBalance, wt_day.totalHours, wt_day.start])            
+            Logging.write_day(MY_Time.localTimeTuple, [wt_day.totalWt, wt_day.totalBalance, wt_day.totalHours, wt_day.firstStart])            
             wt_week.addDay(totalWt=wt_day.totalWt, totalBalance=wt_day.totalBalance, totalBreak=wt_day.totalBreak)
             CONFIG.write()
             

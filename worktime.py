@@ -43,7 +43,7 @@ class WT_Day():
     @classmethod
     def set_Wt_Plan(cls, work_time_plan, minBreak=None):
         WT_Day.wtPlan = round(work_time_plan/5.,2)
-        if minBreak:
+        if not minBreak is None:
             WT_Day.wtMinBreak = minBreak
 
     def __init__(self, 
@@ -226,7 +226,7 @@ class Config():
         # values to support restart after power break
         'date': (2020,1,1),       # actual date tuple (year,month,date)
         'time':    0.0,           # actual time in decimal format  23.999
-        'balance_today':    0.,   # balance time actual day
+        'balance_today':    0.,   # balance time actual day 
         'balance_past': 0.,       # balance accumulated from old days 
          # config values, not changed by program
         'workTimePlan':   39.0,   # planned working time per week
@@ -244,6 +244,7 @@ class Config():
         except:
             # create new file if not exists
             Config.write()
+        Config.config['balance_today'] = max(-WORK_TIME_PLAN / 5., Config.config['balance_today'] ) # clip 
         return Config.config
                 
     @classmethod
