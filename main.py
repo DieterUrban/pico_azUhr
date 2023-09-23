@@ -151,7 +151,9 @@ if 'micropython' in str(sys.implementation):
     EMBEDDED = True
 EMBEDDED_KEYS = True     # use False for python input triggered by mouse scroll whell instead of I/O query for keys
 #EMBEDDED_KEYS = False
- 
+CYCLE = 5      # (LCD) screen update cycle (partial print) in seconds
+REFRESH = 3    # (LCD) screen refresh (full re print) every n cycle
+
 _SSEG = True  # is 7seg- implementation used for output, or simple print to framebuffer
 _SSEG = False    
 
@@ -599,6 +601,7 @@ def main():
     while True:
         TIME_H, TIME_WD = MY_Time.getLocaltime()        
         _sec = time.mktime(tuple(MY_Time.localTimeTuple))
+        _isec = int(_sec)
         _tt = time.localtime(_sec)
         
         # react to key press
@@ -607,27 +610,28 @@ def main():
         wt_day.update(TIME_H)        
         wt_week.update(totalWt=wt_day.totalWt, totalBalance=wt_day.totalBalance, totalBreak=wt_day.totalBreak)
                     
-        # screen refresh every 10 sec.
-        if int(_sec) % 10 == 0 and update:
-            LCD.fill(0x0000)
-            screen_update(wt_day, wt_recent, wt_week, wt_last_week, layout)
-
         # config and actual balance save every hour
-        if int(_sec) % (60*60) == 0 and update:
+        if _isec % (60*60) == 0 and update:
             date = MY_Time.localTimeTuple[0:3]
             CONFIG.updateState(wt_day, time=TIME_H, date=date)
             CONFIG.write()
 
+        # screen refresh every 15 sec.
+        if _isec % CYCLE*REFRESH == 0 and update:
+            LCD.fill(0x0000)
+            screen_update(wt_day, wt_recent, wt_week, wt_last_week, layout)
+            update = False
 
-        # enable next screen update
-        if int(_sec) % 3 == 1:
+        # screen update every 5 sec.
+        if _isec % CYCLE == 0 and update:
+            screen_update(wt_day, wt_recent, wt_week, wt_last_week, layout)
+            update = False
+
+        # enable next screen update at next second
+        if _isec % CYCLE == 1:
             update = True
 
-        # screen update every 3 sec.
-        if int(_sec) % 3 == 0 and update:
-            update = False
-            screen_update(wt_day, wt_recent, wt_week, wt_last_week, layout)
-                        
+
         # process presence sensor input
         # tbd
         # trigger start or stop ...
@@ -636,7 +640,7 @@ def main():
         condition = (TIME_H >= 23.98)
         #condition = ((TIME_H *60*60) % 20 == 0)  # debugging
         if condition and processDayEnd == True:  # last minute
-            print("condition day end @ sec=", _sec)
+            print("condition day end @ sec=", _isec)
             processDayEnd = False
             todays_wt = wt_day.endDay()
             Logging.write_day(MY_Time.localTimeTuple, [wt_day.totalWt, wt_day.totalBalance, wt_day.totalHours, wt_day.firstStart])            
